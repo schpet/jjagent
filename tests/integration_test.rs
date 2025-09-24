@@ -76,6 +76,7 @@ impl TestRepo {
         // Build jjcc command - need to execute it with jj repo as working directory
         let mut child = Command::new(jjcc_binary)
             .current_dir(self.dir.path())
+            .env_remove("JJCC_DISABLE") // Ensure JJCC_DISABLE is not set
             .args(["hooks", hook])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -91,12 +92,15 @@ impl TestRepo {
         // Wait and check output
         let output = child.wait_with_output()?;
 
+        // Always print stderr for debugging
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("jjcc stderr: {}", stderr);
+        }
+
         // Print stderr for debugging if command fails
         if !output.status.success() {
-            eprintln!(
-                "jjcc command failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            eprintln!("jjcc command failed with status: {:?}", output.status);
         }
 
         Ok(())
@@ -429,6 +433,154 @@ fn test_interrupted_operation_recovery() -> Result<()> {
             "Should not be stuck on Claude change after interrupted op"
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn test_changes_not_abandoned_when_present() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    // First create the scenario where Claude makes changes
+    repo.run_hook("UserPromptSubmit", None)?;
+
+    eprintln!("Initial change ID: {}", initial_change);
+
+    repo.run_hook("PreToolUse", Some("Write"))?;
+
+    // Check if we're on a workspace now
+    let after_pre = repo.get_current_change_id()?;
+    eprintln!("After PreToolUse change ID: {}", after_pre);
+    let desc = repo.get_change_description(&after_pre)?;
+    eprintln!("After PreToolUse description: {}", desc);
+
+    // Claude creates a file (simulating actual work)
+    repo.create_file("claude_file.txt", "Claude made this change")?;
+
+    // Get workspace ID before PostToolUse
+    let workspace_id = repo.get_current_change_id()?;
+    eprintln!("Workspace ID: {}", workspace_id);
+
+    // Check status before PostToolUse
+    let status_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["status", "--no-pager"])
+        .output()?;
+    eprintln!(
+        "Status before PostToolUse: {}",
+        String::from_utf8_lossy(&status_output.stdout)
+    );
+
+    // Run PostToolUse - this should NOT abandon the workspace
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Verify we're back on original
+    let after_post = repo.get_current_change_id()?;
+    assert_eq!(after_post, initial_change, "Should be back on original");
+
+    // Verify the Claude change exists and contains our file
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Claude change should exist - not abandoned!");
+
+    // The workspace ID becomes the Claude change ID (it gets rebased and renamed)
+    assert_eq!(
+        workspace_id, claude_change,
+        "Workspace becomes the Claude change"
+    );
+
+    // Verify the file is in the Claude change
+    let diff_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff", "-r", &claude_change])
+        .output()?;
+
+    let diff = String::from_utf8_lossy(&diff_output.stdout);
+    assert!(
+        diff.contains("claude_file.txt"),
+        "File should be in Claude change, not abandoned. Diff: {}",
+        diff
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_empty_commit_with_working_copy_changes_not_abandoned() -> Result<()> {
+    // This test verifies that when the commit is (empty) but there are working copy changes,
+    // we don't abandon the workspace
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Write"))?;
+
+    // Create a file in working copy (not committed)
+    repo.create_file("new_file.txt", "content")?;
+
+    // Verify the commit is empty but there are working copy changes
+    let status_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["status", "--no-pager"])
+        .output()?;
+    let status = String::from_utf8_lossy(&status_output.stdout);
+
+    // Should show working copy changes
+    assert!(
+        status.contains("Working copy changes:"),
+        "Should have working copy changes"
+    );
+
+    // Run PostToolUse - should NOT abandon despite (empty) marker
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Should be back on original
+    assert_eq!(repo.get_current_change_id()?, initial_change);
+
+    // Claude change should exist with our changes
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Claude change should NOT be abandoned!");
+
+    // Verify file is in Claude change
+    let diff_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff", "-r", &claude_change])
+        .output()?;
+    let diff = String::from_utf8_lossy(&diff_output.stdout);
+    assert!(
+        diff.contains("new_file.txt"),
+        "File should be in Claude change. Diff: {}",
+        diff
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_workspace_abandoned_when_no_changes() -> Result<()> {
+    // This test verifies that when there are truly no changes, the workspace is abandoned
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Read"))?;
+
+    // Don't create any files - simulate a read-only operation
+
+    // Run PostToolUse - should abandon the empty workspace
+    repo.run_hook("PostToolUse", Some("Read"))?;
+
+    // Should be back on original
+    assert_eq!(repo.get_current_change_id()?, initial_change);
+
+    // Claude change should NOT exist
+    let claude_change = repo.find_claude_change()?;
+    assert!(
+        claude_change.is_none(),
+        "Claude change should not exist when no changes were made"
+    );
 
     Ok(())
 }

@@ -243,7 +243,13 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
     let status_str = String::from_utf8_lossy(&status.stdout);
 
-    if status_str.contains("(empty)") || status_str.contains("nothing changed") {
+    // Check if there are working copy changes OR if the commit has content
+    // "Working copy changes:" appears when there are uncommitted changes
+    // "nothing changed" appears when there are truly no changes
+    let has_working_copy_changes = status_str.contains("Working copy changes:");
+    let truly_no_changes = status_str.contains("nothing changed");
+
+    if !has_working_copy_changes && truly_no_changes {
         eprintln!("PostToolUse: No changes made, abandoning workspace");
         run_jj_command(&["abandon", &workspace_change_id])?;
         // We're already back on the original after abandon
