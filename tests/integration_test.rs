@@ -137,7 +137,7 @@ impl TestRepo {
 
     fn is_on_temp_workspace(&self) -> Result<bool> {
         let desc = self.get_change_description("@")?;
-        Ok(desc.contains("[Claude PreToolUse]"))
+        Ok(desc.contains("[Claude Workspace]"))
     }
 
     fn find_claude_change(&self) -> Result<Option<String>> {
@@ -173,22 +173,18 @@ fn test_first_tool_use() -> Result<()> {
     let repo = TestRepo::new()?;
     let initial_change = repo.get_current_change_id()?;
 
-    // First tool use should create Claude change and leave us on it
+    // First tool use should create temporary workspace
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Write"))?;
 
-    // We should be on the Claude change itself (first time)
+    // We should be on a temporary workspace
     let current = repo.get_current_change_id()?;
     assert_ne!(current, initial_change, "Should have moved to a new change");
 
     let desc = repo.get_change_description(&current)?;
     assert!(
-        desc.contains("Claude Code Session"),
-        "Should be on Claude change"
-    );
-    assert!(
-        !desc.contains("[Claude PreToolUse]"),
-        "Should NOT be on temp workspace"
+        desc.contains("[Claude Workspace]"),
+        "Should be on temporary workspace"
     );
 
     // Simulate edit
@@ -318,25 +314,14 @@ fn test_never_stay_on_claude_change() -> Result<()> {
 
         let current = repo.get_current_change_id()?;
 
-        if i == 1 {
-            // First time, we ARE on Claude change temporarily
-            let desc = repo.get_change_description(&current)?;
-            assert!(
-                desc.contains("Claude Code Session"),
-                "First time should be on Claude change"
-            );
-        } else {
-            // Subsequent times, should be on temp workspace
-            assert!(repo.is_on_temp_workspace()?, "Should be on temp workspace");
+        // Always on temp workspace now
+        assert!(repo.is_on_temp_workspace()?, "Should be on temp workspace");
 
-            // But never on the Claude change directly
-            let claude_change = repo.find_claude_change()?;
-            if let Some(claude_id) = claude_change {
-                assert_ne!(
-                    current, claude_id,
-                    "Should never be left on Claude change for subsequent edits"
-                );
-            }
+        // Never on the Claude change directly
+        let claude_change = repo.find_claude_change()?;
+        if i > 1 && claude_change.is_some() {
+            let claude_id = claude_change.unwrap();
+            assert_ne!(current, claude_id, "Should never be left on Claude change");
         }
 
         repo.create_file(&format!("file{}.txt", i), "content")?;
@@ -455,14 +440,13 @@ fn test_git_interpret_trailers_compatibility() -> Result<()> {
     // Create a Claude change with session ID trailer
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Write"))?;
+    repo.create_file("test.txt", "content")?;
+    repo.run_hook("PostToolUse", Some("Write"))?;
 
-    // Find the Claude change BEFORE PostToolUse (while we're still on it)
+    // Find the Claude change after PostToolUse (when it's been created)
     let claude_change = repo
         .find_claude_change()?
         .expect("Claude change should exist");
-
-    repo.create_file("test.txt", "content")?;
-    repo.run_hook("PostToolUse", Some("Write"))?;
 
     // Get the commit message directly from jj using the specific change ID
     let desc_output = Command::new("jj")

@@ -192,8 +192,60 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     fs::write(&original_working_copy_file, &original_working_copy_id)?;
 
-    // Check if a Claude change already exists for this session
-    // Search for a change with the session ID in the trailer
+    // Check if we're already on a temporary workspace (continuing from previous tool)
+    let current_desc = get_current_description()?;
+    if current_desc.contains("[Claude Workspace]") && current_desc.contains(&session_id) {
+        eprintln!("Already on temporary workspace, continuing");
+        return Ok(());
+    }
+
+    // Create a new temporary workspace on top of current change
+    eprintln!("Creating temporary workspace for Claude edits");
+    run_jj_command(&["new"])?;
+
+    // Add description to the temporary workspace
+    run_jj_command(&[
+        "describe",
+        "-m",
+        &format!(
+            "[Claude Workspace] Temporary workspace for session {}",
+            session_id
+        ),
+    ])?;
+
+    Ok(())
+}
+
+fn handle_post_tool_use(input: HookInput) -> Result<()> {
+    let session_id = input.session_id;
+    eprintln!("PostToolUse: Starting for session {}", session_id);
+
+    // Get stored original working copy
+    let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
+    if !original_working_copy_file.exists() {
+        eprintln!("PostToolUse: No original working copy file found");
+        return Ok(());
+    }
+
+    let original_working_copy_id = fs::read_to_string(&original_working_copy_file)?
+        .trim()
+        .to_string();
+
+    // Get current workspace change ID
+    let workspace_change_id = get_current_change_id()?;
+
+    // Check if there are any changes to move
+    let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
+    let status_str = String::from_utf8_lossy(&status.stdout);
+
+    if status_str.contains("(empty)") || status_str.contains("nothing changed") {
+        eprintln!("PostToolUse: No changes made, abandoning workspace");
+        run_jj_command(&["abandon", &workspace_change_id])?;
+        // We're already back on the original after abandon
+        return Ok(());
+    }
+
+    // Check if Claude change already exists for this session
     let search_output = Command::new("jj")
         .args([
             "log",
@@ -208,84 +260,54 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
         .output()?;
 
     if search_output.status.success() && !search_output.stdout.is_empty() {
-        // Claude change exists for this session
-        let claude_change_id = String::from_utf8_lossy(&search_output.stdout)
+        // Claude change exists, we'll squash into it
+        let existing_id = String::from_utf8_lossy(&search_output.stdout)
             .trim()
             .to_string();
         eprintln!(
-            "Found existing Claude change {} for session",
-            &claude_change_id[0..12.min(claude_change_id.len())]
+            "PostToolUse: Found existing Claude change {}",
+            &existing_id[0..12.min(existing_id.len())]
         );
 
-        // Store the Claude change ID for PostToolUse
-        let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
-        fs::write(&claude_change_file, &claude_change_id)?;
-
-        // Check if we're already on a temporary child of the Claude change
-        let current_desc = get_current_description()?;
-        if current_desc.contains("[Claude PreToolUse]") && current_desc.contains(&session_id) {
-            // We're already on a temporary workspace for this session, just use it
-            eprintln!("Already on temporary workspace, continuing");
-            return Ok(());
-        }
-
-        // Create a new temporary child of the Claude change
-        eprintln!("Creating temporary child of Claude change for editing");
-        run_jj_command(&["new", &claude_change_id])?;
-
-        // Add description to the temporary change
+        // Squash workspace changes into the existing Claude change
         run_jj_command(&[
-            "describe",
-            "-m",
-            &format!(
-                "[Claude PreToolUse] Temporary workspace for session {}",
-                session_id
-            ),
+            "squash",
+            "--from",
+            &workspace_change_id,
+            "--into",
+            &existing_id,
+            "--use-destination-message",
+        ])?;
+    } else {
+        // First tool use - insert workspace before original
+        eprintln!("PostToolUse: Creating Claude change before original");
+
+        // Use jj rebase to move our workspace change before the original
+        // This rebases original on top of our changes
+        run_jj_command(&[
+            "rebase",
+            "-r",
+            &workspace_change_id,
+            "--insert-before",
+            &original_working_copy_id,
         ])?;
 
-        return Ok(());
-    }
-
-    // If we reach here, we need to create a new Claude change
-    {
-        eprintln!("Creating Claude change for session {}", session_id);
-
-        // Build the message from env var or default, plus stored prompts
+        // Add Claude description with session trailer
         let description =
             env::var("JJCC_DESC").unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
-
-        // Always add session ID as a trailer (with blank line before it)
         let trailer = format!("Claude-Session-Id: {}", session_id);
 
         let prompt_file = get_temp_file_path(&session_id, "prompts.txt");
         let message = if prompt_file.exists() {
             let prompts = fs::read_to_string(&prompt_file)?;
-            // Ensure blank line before trailer - trim prompts to avoid extra newlines
             format!("{}\n\n{}\n\n{}", description, prompts.trim_end(), trailer)
         } else {
-            // Ensure blank line before trailer even without prompts
             format!("{}\n\n{}", description, trailer)
         };
 
-        // Create new change inserted before the current working copy
-        eprintln!("Creating new change inserted before working copy");
-        run_jj_command(&["new", "--insert-before", &original_working_copy_id])?;
-
-        // Get the new change ID (current @ after 'jj new --insert-before')
-        let claude_change_id = get_current_change_id()?;
-
-        // Store Claude's ID for PostToolUse
-        let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
-        fs::write(&claude_change_file, &claude_change_id)?;
-        eprintln!(
-            "Created Claude change: {}",
-            &claude_change_id[0..12.min(claude_change_id.len())]
-        );
-
-        // Add the description to Claude's change
-        // Use stdin to preserve exact formatting including blank lines
+        // Describe the workspace (which is now the Claude change)
         let mut child = Command::new("jj")
-            .args(["describe", "--stdin"])
+            .args(["describe", "-r", &workspace_change_id, "--stdin"])
             .stdin(std::process::Stdio::piped())
             .spawn()?;
 
@@ -293,86 +315,14 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
             use std::io::Write;
             stdin.write_all(message.as_bytes())?;
         }
-
         child.wait()?;
     }
 
-    Ok(())
-}
-
-fn handle_post_tool_use(input: HookInput) -> Result<()> {
-    let session_id = input.session_id;
-    eprintln!("PostToolUse: Starting for session {}", session_id);
-
-    // Get stored file paths
-    let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
-    let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
-
-    if !claude_change_file.exists() {
-        eprintln!(
-            "PostToolUse: No Claude change file found for session {}",
-            session_id
-        );
-        return Ok(());
-    }
-
-    if !original_working_copy_file.exists() {
-        eprintln!(
-            "PostToolUse: No original working copy file found for session {}",
-            session_id
-        );
-        return Ok(());
-    }
-
-    let claude_change_id = fs::read_to_string(&claude_change_file)?.trim().to_string();
-    let original_working_copy_id = fs::read_to_string(&original_working_copy_file)?
-        .trim()
-        .to_string();
-
-    // Get current change ID (could be Claude's change on first use, or temp child on subsequent)
-    let current_change_id = get_current_change_id()?;
-    eprintln!(
-        "PostToolUse: Current change: {}, Claude change: {}, Original: {}",
-        &current_change_id[0..12.min(current_change_id.len())],
-        &claude_change_id[0..12.min(claude_change_id.len())],
-        &original_working_copy_id[0..12.min(original_working_copy_id.len())]
-    );
-
-    // If current change is not the Claude change, it's a temp child that needs squashing
-    if current_change_id != claude_change_id {
-        // Check if there are any changes to squash
-        let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
-        let status_str = String::from_utf8_lossy(&status.stdout);
-
-        if status_str.contains("(empty)") || status_str.contains("nothing changed") {
-            eprintln!("PostToolUse: No changes to squash, abandoning temporary change");
-            run_jj_command(&["abandon", &current_change_id])?;
-        } else {
-            // Squash the temporary child's changes back into Claude's change
-            eprintln!(
-                "PostToolUse: Squashing changes into Claude change {}",
-                &claude_change_id[0..12.min(claude_change_id.len())]
-            );
-
-            // Use --use-destination-message to avoid interactive editor
-            run_jj_command(&[
-                "squash",
-                "--from",
-                &current_change_id,
-                "--into",
-                &claude_change_id,
-                "--use-destination-message",
-            ])?;
-        }
-    }
-
-    // Switch back to the original working copy
-    eprintln!(
-        "PostToolUse: Switching back to original working copy {}",
-        &original_working_copy_id[0..12.min(original_working_copy_id.len())]
-    );
+    // Navigate back to the original using jj edit
+    eprintln!("PostToolUse: Switching back to original working copy");
     run_jj_command(&["edit", &original_working_copy_id])?;
 
+    eprintln!("PostToolUse: Back on original working copy");
     Ok(())
 }
 
@@ -388,9 +338,6 @@ fn handle_session_end(input: HookInput) -> Result<()> {
     eprintln!("Session {} ended", session_id);
 
     // Clean up temporary files
-    let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
-    let _ = fs::remove_file(claude_change_file);
-
     let prompts_file = get_temp_file_path(&session_id, "prompts.txt");
     let _ = fs::remove_file(prompts_file);
 
@@ -399,6 +346,7 @@ fn handle_session_end(input: HookInput) -> Result<()> {
 
     // Clean up legacy files if they exist
     for suffix in [
+        "claude-change.txt",
         "stashed.txt",
         "prompt.txt",
         "base-change.txt",
