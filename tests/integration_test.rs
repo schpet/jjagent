@@ -70,8 +70,11 @@ impl TestRepo {
             })
         };
 
+        // Get the path to the jjcc binary built by cargo
+        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+
         // Build jjcc command - need to execute it with jj repo as working directory
-        let mut child = Command::new("jjcc")
+        let mut child = Command::new(jjcc_binary)
             .current_dir(self.dir.path())
             .args(["hooks", hook])
             .stdin(std::process::Stdio::piped())
@@ -441,6 +444,77 @@ fn test_interrupted_operation_recovery() -> Result<()> {
             "Should not be stuck on Claude change after interrupted op"
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn test_git_interpret_trailers_compatibility() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    // Create a Claude change with session ID trailer
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Write"))?;
+
+    // Find the Claude change BEFORE PostToolUse (while we're still on it)
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Claude change should exist");
+
+    repo.create_file("test.txt", "content")?;
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Get the commit message directly from jj using the specific change ID
+    let desc_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args([
+            "log",
+            "-r",
+            &claude_change,
+            "--no-graph",
+            "-T",
+            "description",
+        ])
+        .output()?;
+
+    if !desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to get jj description: {}",
+            String::from_utf8_lossy(&desc_output.stderr)
+        );
+    }
+
+    let commit_message = String::from_utf8_lossy(&desc_output.stdout);
+
+    // Write the commit message to a temp file
+    let message_file = repo.dir.path().join("commit_message.txt");
+    fs::write(&message_file, commit_message.as_bytes())?;
+
+    // Run git interpret-trailers on the commit message
+    let trailers_output = Command::new("git")
+        .current_dir(repo.dir.path())
+        .args([
+            "interpret-trailers",
+            "--only-trailers",
+            message_file.to_str().unwrap(),
+        ])
+        .output()?;
+
+    if !trailers_output.status.success() {
+        anyhow::bail!(
+            "git interpret-trailers failed: {}",
+            String::from_utf8_lossy(&trailers_output.stderr)
+        );
+    }
+
+    let trailers = String::from_utf8_lossy(&trailers_output.stdout);
+
+    // Verify the Claude-Session-Id trailer was parsed correctly
+    assert!(
+        trailers.contains(&format!("Claude-Session-Id: {}", repo.session_id)),
+        "Claude-Session-Id trailer should be parsed by git interpret-trailers. Got: '{}'",
+        trailers
+    );
 
     Ok(())
 }

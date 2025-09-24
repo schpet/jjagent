@@ -154,14 +154,28 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
                     .to_string()
             };
 
-            // Always add session ID as a trailer
-            let trailer = format!("\nClaude-Session-Id: {}", session_id);
-            let new_desc = format!("{}\n\n{}{}", description, all_prompts, trailer);
+            // Always add session ID as a trailer (with blank line before it)
+            let trailer = format!("Claude-Session-Id: {}", session_id);
+            // Ensure blank line before trailer - trim prompts to avoid extra newlines
+            let new_desc = format!(
+                "{}\n\n{}\n\n{}",
+                description,
+                all_prompts.trim_end(),
+                trailer
+            );
 
-            // Update the description
-            Command::new("jj")
-                .args(["describe", "-r", &session_change, "-m", &new_desc])
-                .output()?;
+            // Update the description using stdin to preserve formatting
+            let mut child = Command::new("jj")
+                .args(["describe", "-r", &session_change, "--stdin"])
+                .stdin(std::process::Stdio::piped())
+                .spawn()?;
+
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                stdin.write_all(new_desc.as_bytes())?;
+            }
+
+            child.wait()?;
 
             eprintln!("Updated session description");
         }
@@ -240,15 +254,17 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
         let description =
             env::var("JJCC_DESC").unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
 
-        // Always add session ID as a trailer
-        let trailer = format!("\nClaude-Session-Id: {}", session_id);
+        // Always add session ID as a trailer (with blank line before it)
+        let trailer = format!("Claude-Session-Id: {}", session_id);
 
         let prompt_file = get_temp_file_path(&session_id, "prompts.txt");
         let message = if prompt_file.exists() {
             let prompts = fs::read_to_string(&prompt_file)?;
-            format!("{}\n\n{}{}", description, prompts, trailer)
+            // Ensure blank line before trailer - trim prompts to avoid extra newlines
+            format!("{}\n\n{}\n\n{}", description, prompts.trim_end(), trailer)
         } else {
-            format!("{}{}", description, trailer)
+            // Ensure blank line before trailer even without prompts
+            format!("{}\n\n{}", description, trailer)
         };
 
         // Create new change inserted before the current working copy
@@ -267,7 +283,18 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
         );
 
         // Add the description to Claude's change
-        run_jj_command(&["describe", "-m", &message])?;
+        // Use stdin to preserve exact formatting including blank lines
+        let mut child = Command::new("jj")
+            .args(["describe", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()?;
+
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write;
+            stdin.write_all(message.as_bytes())?;
+        }
+
+        child.wait()?;
     }
 
     Ok(())
