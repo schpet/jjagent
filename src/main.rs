@@ -48,9 +48,9 @@ struct HookInput {
     #[serde(default)]
     prompt: Option<String>,
     #[serde(default)]
-    tool_name: Option<String>,
+    _tool_name: Option<String>,
     #[serde(default)]
-    tool_input: Option<serde_json::Value>,
+    _tool_input: Option<serde_json::Value>,
 }
 
 fn main() -> Result<()> {
@@ -68,8 +68,7 @@ fn main() -> Result<()> {
     let mut buffer = String::new();
     io::stdin().read_to_string(&mut buffer)?;
 
-    let input: HookInput = serde_json::from_str(&buffer)
-        .context("Failed to parse JSON input")?;
+    let input: HookInput = serde_json::from_str(&buffer).context("Failed to parse JSON input")?;
 
     match cli.command {
         Commands::Hooks(hook_cmd) => match hook_cmd {
@@ -78,7 +77,7 @@ fn main() -> Result<()> {
             HookCommands::PostToolUse => handle_post_tool_use(input)?,
             HookCommands::Stop => handle_stop(input)?,
             HookCommands::SessionEnd => handle_session_end(input)?,
-        }
+        },
     }
 
     Ok(())
@@ -111,8 +110,16 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
         // Check if this session already has a change (from previous tool use)
         // Search for the session ID trailer which is always present
         let output = Command::new("jj")
-            .args(["log", "-r", &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
-                   "--no-graph", "-T", "change_id", "--limit", "1"])
+            .args([
+                "log",
+                "-r",
+                &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
+                "--no-graph",
+                "-T",
+                "change_id",
+                "--limit",
+                "1",
+            ])
             .output()?;
 
         if output.status.success() && !output.stdout.is_empty() {
@@ -129,11 +136,22 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
             } else {
                 // Get existing description to preserve it
                 let desc_output = Command::new("jj")
-                    .args(["log", "-r", &session_change, "--no-graph", "-T", "description"])
+                    .args([
+                        "log",
+                        "-r",
+                        &session_change,
+                        "--no-graph",
+                        "-T",
+                        "description",
+                    ])
                     .output()?;
                 let existing = String::from_utf8_lossy(&desc_output.stdout);
                 // Extract just the first line (before prompts and trailer)
-                existing.lines().next().unwrap_or("Claude Code Session").to_string()
+                existing
+                    .lines()
+                    .next()
+                    .unwrap_or("Claude Code Session")
+                    .to_string()
             };
 
             // Always add session ID as a trailer
@@ -178,13 +196,21 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
             // Fall through to create a new Claude change
         } else {
             // Claude change exists - create a new empty child for Claude to work in
-            eprintln!("Creating temporary child of Claude change {} for editing",
-                     &claude_change_id[0..12.min(claude_change_id.len())]);
+            eprintln!(
+                "Creating temporary child of Claude change {} for editing",
+                &claude_change_id[0..12.min(claude_change_id.len())]
+            );
             run_jj_command(&["new", &claude_change_id])?;
 
             // Add a description to the temporary change
-            run_jj_command(&["describe", "-m",
-                           &format!("[Claude PreToolUse] Temporary workspace for session {}", session_id)])?;
+            run_jj_command(&[
+                "describe",
+                "-m",
+                &format!(
+                    "[Claude PreToolUse] Temporary workspace for session {}",
+                    session_id
+                ),
+            ])?;
             return Ok(());
         }
     }
@@ -194,8 +220,8 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
         eprintln!("Creating Claude change for session {}", session_id);
 
         // Build the message from env var or default, plus stored prompts
-        let description = env::var("JJCC_DESC")
-            .unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
+        let description =
+            env::var("JJCC_DESC").unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
 
         // Always add session ID as a trailer
         let trailer = format!("\nClaude-Session-Id: {}", session_id);
@@ -210,7 +236,13 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
 
         // Create new change as child of current working copy (so Claude sees user's changes)
         let output = Command::new("jj")
-            .args(["new", &original_working_copy_id, "-m", &message, "--no-edit"])
+            .args([
+                "new",
+                &original_working_copy_id,
+                "-m",
+                &message,
+                "--no-edit",
+            ])
             .output()
             .context("Failed to create Claude change")?;
 
@@ -230,15 +262,24 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
 
         // Store Claude's ID for PostToolUse
         fs::write(&claude_change_file, &claude_change_id)?;
-        eprintln!("Created Claude change: {}", &claude_change_id[0..12.min(claude_change_id.len())]);
+        eprintln!(
+            "Created Claude change: {}",
+            &claude_change_id[0..12.min(claude_change_id.len())]
+        );
 
         // Now create an empty child of Claude's change for editing
         eprintln!("Creating temporary child for editing");
         run_jj_command(&["new", &claude_change_id])?;
 
         // Add a description to the temporary change
-        run_jj_command(&["describe", "-m",
-                       &format!("[Claude PreToolUse] Temporary workspace for session {}", session_id)])?;
+        run_jj_command(&[
+            "describe",
+            "-m",
+            &format!(
+                "[Claude PreToolUse] Temporary workspace for session {}",
+                session_id
+            ),
+        ])?;
     }
 
     Ok(())
@@ -253,29 +294,37 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
 
     if !claude_change_file.exists() {
-        eprintln!("PostToolUse: No Claude change file found for session {}", session_id);
+        eprintln!(
+            "PostToolUse: No Claude change file found for session {}",
+            session_id
+        );
         return Ok(());
     }
 
     if !original_working_copy_file.exists() {
-        eprintln!("PostToolUse: No original working copy file found for session {}", session_id);
+        eprintln!(
+            "PostToolUse: No original working copy file found for session {}",
+            session_id
+        );
         return Ok(());
     }
 
     let claude_change_id = fs::read_to_string(&claude_change_file)?.trim().to_string();
-    let original_working_copy_id = fs::read_to_string(&original_working_copy_file)?.trim().to_string();
+    let original_working_copy_id = fs::read_to_string(&original_working_copy_file)?
+        .trim()
+        .to_string();
 
     // Get current change ID (should be the temporary child we created)
     let temp_child_id = get_current_change_id()?;
-    eprintln!("PostToolUse: Current change: {}, Claude change: {}, Original: {}",
-             &temp_child_id[0..12.min(temp_child_id.len())],
-             &claude_change_id[0..12.min(claude_change_id.len())],
-             &original_working_copy_id[0..12.min(original_working_copy_id.len())]);
+    eprintln!(
+        "PostToolUse: Current change: {}, Claude change: {}, Original: {}",
+        &temp_child_id[0..12.min(temp_child_id.len())],
+        &claude_change_id[0..12.min(claude_change_id.len())],
+        &original_working_copy_id[0..12.min(original_working_copy_id.len())]
+    );
 
     // Check if there are any changes to squash
-    let status = Command::new("jj")
-        .args(["status", "--no-pager"])
-        .output()?;
+    let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
 
     let status_str = String::from_utf8_lossy(&status.stdout);
     if status_str.contains("(empty)") || status_str.contains("nothing changed") {
@@ -284,14 +333,24 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         run_jj_command(&["abandon", &temp_child_id])?;
     } else {
         // Squash the temporary child's changes back into Claude's change
-        eprintln!("PostToolUse: Squashing changes into Claude change {}",
-                 &claude_change_id[0..12.min(claude_change_id.len())]);
-        run_jj_command(&["squash", "--from", &temp_child_id, "--into", &claude_change_id])?;
+        eprintln!(
+            "PostToolUse: Squashing changes into Claude change {}",
+            &claude_change_id[0..12.min(claude_change_id.len())]
+        );
+        run_jj_command(&[
+            "squash",
+            "--from",
+            &temp_child_id,
+            "--into",
+            &claude_change_id,
+        ])?;
     }
 
     // Now switch back to the original working copy
-    eprintln!("PostToolUse: Switching back to original working copy {}",
-             &original_working_copy_id[0..12.min(original_working_copy_id.len())]);
+    eprintln!(
+        "PostToolUse: Switching back to original working copy {}",
+        &original_working_copy_id[0..12.min(original_working_copy_id.len())]
+    );
     run_jj_command(&["edit", &original_working_copy_id])?;
 
     Ok(())
@@ -319,9 +378,17 @@ fn handle_session_end(input: HookInput) -> Result<()> {
     let _ = fs::remove_file(original_working_copy_file);
 
     // Clean up legacy files if they exist
-    for suffix in ["stashed.txt", "prompt.txt", "base-change.txt", "sibling-change.txt",
-                   "merge-change.txt", "structure-created.txt", "parent-change.txt",
-                   "user-change.txt", "claude-editing.txt"] {
+    for suffix in [
+        "stashed.txt",
+        "prompt.txt",
+        "base-change.txt",
+        "sibling-change.txt",
+        "merge-change.txt",
+        "structure-created.txt",
+        "parent-change.txt",
+        "user-change.txt",
+        "claude-editing.txt",
+    ] {
         let file = get_temp_file_path(&session_id, suffix);
         let _ = fs::remove_file(file);
     }
@@ -329,7 +396,7 @@ fn handle_session_end(input: HookInput) -> Result<()> {
     Ok(())
 }
 
-fn get_current_description() -> Result<String> {
+fn _get_current_description() -> Result<String> {
     let output = Command::new("jj")
         .args(["log", "-r", "@", "--no-graph", "-T", "description"])
         .output()
@@ -347,21 +414,27 @@ fn get_current_change_id() -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn get_parent_change_id() -> Result<String> {
+fn _get_parent_change_id() -> Result<String> {
     let output = Command::new("jj")
-        .args(["log", "-r", "@-", "--no-graph", "-T", "change_id", "--limit", "1"])
+        .args([
+            "log",
+            "-r",
+            "@-",
+            "--no-graph",
+            "-T",
+            "change_id",
+            "--limit",
+            "1",
+        ])
         .output()
         .context("Failed to get parent change id")?;
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-
 fn is_jj_repo() -> bool {
     // Check if .jj directory exists in current directory or any parent
-    let output = Command::new("jj")
-        .args(["root"])
-        .output();
+    let output = Command::new("jj").args(["root"]).output();
 
     match output {
         Ok(output) => output.status.success(),
