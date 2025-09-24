@@ -56,6 +56,11 @@ struct HookInput {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if env::var("JJCC_DISABLE").unwrap_or_default() == "1" {
+        eprintln!("jjcc: Disabled via JJCC_DISABLE=1");
+        return Ok(());
+    }
+
     // Check if we're in a jj repository
     if !is_jj_repo() {
         // Not in a jj repo - silently exit with success
