@@ -178,41 +178,58 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     fs::write(&original_working_copy_file, &original_working_copy_id)?;
 
-    // Check if we have Claude's change stored
-    let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
+    // Check if a Claude change already exists for this session
+    // Search for a change with the session ID in the trailer
+    let search_output = Command::new("jj")
+        .args([
+            "log",
+            "-r",
+            &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
+            "--no-graph",
+            "-T",
+            "change_id",
+            "--limit",
+            "1",
+        ])
+        .output()?;
 
-    if claude_change_file.exists() {
-        // Claude change file exists - verify the change still exists
-        let claude_change_id = fs::read_to_string(&claude_change_file)?.trim().to_string();
+    if search_output.status.success() && !search_output.stdout.is_empty() {
+        // Claude change exists for this session
+        let claude_change_id = String::from_utf8_lossy(&search_output.stdout)
+            .trim()
+            .to_string();
+        eprintln!(
+            "Found existing Claude change {} for session",
+            &claude_change_id[0..12.min(claude_change_id.len())]
+        );
 
-        // Check if the Claude change actually exists in the repo
-        let check_output = Command::new("jj")
-            .args(["log", "-r", &claude_change_id, "--no-graph", "--limit", "1"])
-            .output()?;
+        // Store the Claude change ID for PostToolUse
+        let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
+        fs::write(&claude_change_file, &claude_change_id)?;
 
-        if !check_output.status.success() {
-            // Claude change doesn't exist anymore (maybe abandoned), remove the file
-            let _ = fs::remove_file(&claude_change_file);
-            // Fall through to create a new Claude change
-        } else {
-            // Claude change exists - create a new empty child for Claude to work in
-            eprintln!(
-                "Creating temporary child of Claude change {} for editing",
-                &claude_change_id[0..12.min(claude_change_id.len())]
-            );
-            run_jj_command(&["new", &claude_change_id])?;
-
-            // Add a description to the temporary change
-            run_jj_command(&[
-                "describe",
-                "-m",
-                &format!(
-                    "[Claude PreToolUse] Temporary workspace for session {}",
-                    session_id
-                ),
-            ])?;
+        // Check if we're already on a temporary child of the Claude change
+        let current_desc = get_current_description()?;
+        if current_desc.contains("[Claude PreToolUse]") && current_desc.contains(&session_id) {
+            // We're already on a temporary workspace for this session, just use it
+            eprintln!("Already on temporary workspace, continuing");
             return Ok(());
         }
+
+        // Create a new temporary child of the Claude change
+        eprintln!("Creating temporary child of Claude change for editing");
+        run_jj_command(&["new", &claude_change_id])?;
+
+        // Add description to the temporary change
+        run_jj_command(&[
+            "describe",
+            "-m",
+            &format!(
+                "[Claude PreToolUse] Temporary workspace for session {}",
+                session_id
+            ),
+        ])?;
+
+        return Ok(());
     }
 
     // If we reach here, we need to create a new Claude change
@@ -234,52 +251,23 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
             format!("{}{}", description, trailer)
         };
 
-        // Create new change as child of current working copy (so Claude sees user's changes)
-        let output = Command::new("jj")
-            .args([
-                "new",
-                &original_working_copy_id,
-                "-m",
-                &message,
-                "--no-edit",
-            ])
-            .output()
-            .context("Failed to create Claude change")?;
+        // Create new change inserted before the current working copy
+        eprintln!("Creating new change inserted before working copy");
+        run_jj_command(&["new", "--insert-before", &original_working_copy_id])?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to create Claude change: {}", stderr);
-        }
-
-        // Parse the change ID from the stderr
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let claude_change_id = stderr
-            .lines()
-            .find(|line| line.starts_with("Created new commit"))
-            .and_then(|line| line.split_whitespace().nth(3))
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse Claude change ID from jj output"))?
-            .to_string();
+        // Get the new change ID (current @ after 'jj new --insert-before')
+        let claude_change_id = get_current_change_id()?;
 
         // Store Claude's ID for PostToolUse
+        let claude_change_file = get_temp_file_path(&session_id, "claude-change.txt");
         fs::write(&claude_change_file, &claude_change_id)?;
         eprintln!(
             "Created Claude change: {}",
             &claude_change_id[0..12.min(claude_change_id.len())]
         );
 
-        // Now create an empty child of Claude's change for editing
-        eprintln!("Creating temporary child for editing");
-        run_jj_command(&["new", &claude_change_id])?;
-
-        // Add a description to the temporary change
-        run_jj_command(&[
-            "describe",
-            "-m",
-            &format!(
-                "[Claude PreToolUse] Temporary workspace for session {}",
-                session_id
-            ),
-        ])?;
+        // Add the description to Claude's change
+        run_jj_command(&["describe", "-m", &message])?;
     }
 
     Ok(())
@@ -314,39 +302,44 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         .trim()
         .to_string();
 
-    // Get current change ID (should be the temporary child we created)
-    let temp_child_id = get_current_change_id()?;
+    // Get current change ID (could be Claude's change on first use, or temp child on subsequent)
+    let current_change_id = get_current_change_id()?;
     eprintln!(
         "PostToolUse: Current change: {}, Claude change: {}, Original: {}",
-        &temp_child_id[0..12.min(temp_child_id.len())],
+        &current_change_id[0..12.min(current_change_id.len())],
         &claude_change_id[0..12.min(claude_change_id.len())],
         &original_working_copy_id[0..12.min(original_working_copy_id.len())]
     );
 
-    // Check if there are any changes to squash
-    let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
+    // If current change is not the Claude change, it's a temp child that needs squashing
+    if current_change_id != claude_change_id {
+        // Check if there are any changes to squash
+        let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
+        let status_str = String::from_utf8_lossy(&status.stdout);
 
-    let status_str = String::from_utf8_lossy(&status.stdout);
-    if status_str.contains("(empty)") || status_str.contains("nothing changed") {
-        eprintln!("PostToolUse: No changes to squash, abandoning temporary change");
-        // Abandon the empty temporary change
-        run_jj_command(&["abandon", &temp_child_id])?;
-    } else {
-        // Squash the temporary child's changes back into Claude's change
-        eprintln!(
-            "PostToolUse: Squashing changes into Claude change {}",
-            &claude_change_id[0..12.min(claude_change_id.len())]
-        );
-        run_jj_command(&[
-            "squash",
-            "--from",
-            &temp_child_id,
-            "--into",
-            &claude_change_id,
-        ])?;
+        if status_str.contains("(empty)") || status_str.contains("nothing changed") {
+            eprintln!("PostToolUse: No changes to squash, abandoning temporary change");
+            run_jj_command(&["abandon", &current_change_id])?;
+        } else {
+            // Squash the temporary child's changes back into Claude's change
+            eprintln!(
+                "PostToolUse: Squashing changes into Claude change {}",
+                &claude_change_id[0..12.min(claude_change_id.len())]
+            );
+
+            // Use --use-destination-message to avoid interactive editor
+            run_jj_command(&[
+                "squash",
+                "--from",
+                &current_change_id,
+                "--into",
+                &claude_change_id,
+                "--use-destination-message",
+            ])?;
+        }
     }
 
-    // Now switch back to the original working copy
+    // Switch back to the original working copy
     eprintln!(
         "PostToolUse: Switching back to original working copy {}",
         &original_working_copy_id[0..12.min(original_working_copy_id.len())]
@@ -396,7 +389,7 @@ fn handle_session_end(input: HookInput) -> Result<()> {
     Ok(())
 }
 
-fn _get_current_description() -> Result<String> {
+fn get_current_description() -> Result<String> {
     let output = Command::new("jj")
         .args(["log", "-r", "@", "--no-graph", "-T", "description"])
         .output()
@@ -410,24 +403,6 @@ fn get_current_change_id() -> Result<String> {
         .args(["log", "-r", "@", "--no-graph", "-T", "change_id"])
         .output()
         .context("Failed to get current change id")?;
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn _get_parent_change_id() -> Result<String> {
-    let output = Command::new("jj")
-        .args([
-            "log",
-            "-r",
-            "@-",
-            "--no-graph",
-            "-T",
-            "change_id",
-            "--limit",
-            "1",
-        ])
-        .output()
-        .context("Failed to get parent change id")?;
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
