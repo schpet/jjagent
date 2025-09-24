@@ -654,3 +654,110 @@ fn test_git_interpret_trailers_compatibility() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_multiple_commits_same_session_id_uses_furthest_descendant() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    // First tool use - creates first Claude change
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Write"))?;
+    repo.create_file("file1.txt", "first change")?;
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Get the first Claude change
+    let first_claude = repo
+        .find_claude_change()?
+        .expect("First Claude change should exist");
+
+    // Manually create a descendant commit with the same session ID
+    // This simulates a scenario where multiple commits might have the same session ID
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new", &first_claude])
+        .output()?;
+
+    // Add a file to the new commit
+    repo.create_file("file2.txt", "second change")?;
+
+    // Add the same Claude-Session-Id trailer to this commit
+    let desc_with_trailer = format!(
+        "Another Claude commit\n\nClaude-Session-Id: {}",
+        repo.session_id
+    );
+
+    let mut child = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["describe", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(desc_with_trailer.as_bytes())?;
+    }
+    child.wait()?;
+
+    // Get the second commit's ID
+    let second_claude = repo.get_current_change_id()?;
+
+    // Navigate back to initial to simulate starting a new operation
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["edit", &initial_change])
+        .output()?;
+
+    // Verify that find_claude_change returns the furthest descendant
+    let found_claude = repo
+        .find_claude_change()?
+        .expect("Should find a Claude change");
+
+    assert_eq!(
+        found_claude, second_claude,
+        "Should find the furthest descendant (second_claude), not the first one"
+    );
+
+    // Now do another tool use - it should find and use the furthest descendant
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Write"))?;
+    repo.create_file("file3.txt", "third change")?;
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Verify that the changes were squashed into the furthest descendant (second_claude)
+    // not the first one
+    let diff_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff", "-r", &second_claude])
+        .output()?;
+
+    let diff = String::from_utf8_lossy(&diff_output.stdout);
+
+    // The second commit should now have all three files
+    assert!(
+        diff.contains("file2.txt"),
+        "Should have file2.txt from original second commit"
+    );
+    assert!(
+        diff.contains("file3.txt"),
+        "Should have file3.txt from new changes"
+    );
+
+    // The first commit should only have file1.txt
+    let first_diff_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff", "-r", &first_claude])
+        .output()?;
+
+    let first_diff = String::from_utf8_lossy(&first_diff_output.stdout);
+    assert!(
+        first_diff.contains("file1.txt"),
+        "First should have file1.txt"
+    );
+    assert!(
+        !first_diff.contains("file3.txt"),
+        "First should NOT have file3.txt"
+    );
+
+    Ok(())
+}

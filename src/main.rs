@@ -114,6 +114,8 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 
         // Check if this session already has a change (from previous tool use)
         // Search for the session ID trailer which is always present
+        // When multiple commits have the same session ID, jj returns them in
+        // topological order (descendants first), so we get the furthest descendant
         let output = Command::new("jj")
             .args([
                 "log",
@@ -257,6 +259,8 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     }
 
     // Check if Claude change already exists for this session
+    // When multiple commits have the same session ID, jj returns them in
+    // topological order (descendants first), so we get the furthest descendant
     let search_output = Command::new("jj")
         .args([
             "log",
