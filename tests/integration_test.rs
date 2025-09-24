@@ -365,25 +365,39 @@ fn test_never_left_on_claude_change_after_operations() -> Result<()> {
 
     // Verify we're on original working copy
     let after_first = repo.get_current_change_id()?;
-    assert_eq!(after_first, initial_change, "Should be on original after first message");
+    assert_eq!(
+        after_first, initial_change,
+        "Should be on original after first message"
+    );
 
     // Get the Claude change ID
-    let claude_change = repo.find_claude_change()?.expect("Claude change should exist");
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Claude change should exist");
 
     // Follow-up message without tool use (just prompt)
     repo.run_hook("UserPromptSubmit", None)?;
 
     // Still should be on original, not Claude change
     let after_prompt = repo.get_current_change_id()?;
-    assert_eq!(after_prompt, initial_change, "Should still be on original after prompt");
-    assert_ne!(after_prompt, claude_change, "Should NOT be on Claude change");
+    assert_eq!(
+        after_prompt, initial_change,
+        "Should still be on original after prompt"
+    );
+    assert_ne!(
+        after_prompt, claude_change,
+        "Should NOT be on Claude change"
+    );
 
     // Now another tool use
     repo.run_hook("PreToolUse", Some("Write"))?;
 
     // Should be on temp workspace, not Claude change
     let during_edit = repo.get_current_change_id()?;
-    assert_ne!(during_edit, claude_change, "Should NOT be on Claude change during edit");
+    assert_ne!(
+        during_edit, claude_change,
+        "Should NOT be on Claude change during edit"
+    );
     assert!(repo.is_on_temp_workspace()?, "Should be on temp workspace");
 
     repo.create_file("file2.txt", "more content")?;
@@ -391,7 +405,10 @@ fn test_never_left_on_claude_change_after_operations() -> Result<()> {
 
     // Final check - must be on original
     let final_pos = repo.get_current_change_id()?;
-    assert_eq!(final_pos, initial_change, "Must end on original working copy");
+    assert_eq!(
+        final_pos, initial_change,
+        "Must end on original working copy"
+    );
     assert_ne!(final_pos, claude_change, "Must NOT be on Claude change");
 
     Ok(())
@@ -400,7 +417,7 @@ fn test_never_left_on_claude_change_after_operations() -> Result<()> {
 #[test]
 fn test_interrupted_operation_recovery() -> Result<()> {
     let repo = TestRepo::new()?;
-    let initial_change = repo.get_current_change_id()?;
+    let _initial_change = repo.get_current_change_id()?;
 
     // Simulate an interrupted operation - PreToolUse without PostToolUse
     repo.run_hook("UserPromptSubmit", None)?;
@@ -419,7 +436,10 @@ fn test_interrupted_operation_recovery() -> Result<()> {
     // but definitely not stuck on the Claude change
     let claude_change = repo.find_claude_change()?;
     if let Some(claude_id) = claude_change {
-        assert_ne!(current, claude_id, "Should not be stuck on Claude change after interrupted op");
+        assert_ne!(
+            current, claude_id,
+            "Should not be stuck on Claude change after interrupted op"
+        );
     }
 
     Ok(())
