@@ -34,7 +34,7 @@ enum HookCommands {
     /// Handle PostToolUse hook
     #[command(name = "PostToolUse")]
     PostToolUse,
-    /// Handle Stop hook
+    /// Handle Stop hook (no-op for backwards compatibility)
     #[command(name = "Stop")]
     Stop,
     /// Handle SessionEnd hook
@@ -80,7 +80,10 @@ fn main() -> Result<()> {
             HookCommands::UserPromptSubmit => handle_user_prompt_submit(input)?,
             HookCommands::PreToolUse => handle_pre_tool_use(input)?,
             HookCommands::PostToolUse => handle_post_tool_use(input)?,
-            HookCommands::Stop => handle_stop(input)?,
+            HookCommands::Stop => {
+                // Stop hook - no-op, just acknowledge
+                eprintln!("Session {} stopped", input.session_id);
+            }
             HookCommands::SessionEnd => handle_session_end(input)?,
         },
     }
@@ -241,14 +244,13 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     // Get current workspace change ID
     let workspace_change_id = get_current_change_id()?;
 
-    // Check if there are any changes to move
-    let status = Command::new("jj").args(["status", "--no-pager"]).output()?;
-    let status_str = String::from_utf8_lossy(&status.stdout);
+    // Check if there are any changes to move using jj diff --stat
+    // This outputs "0 files changed, 0 insertions(+), 0 deletions(-)" when empty
+    let diff_stat = Command::new("jj").args(["diff", "--stat"]).output()?;
+    let diff_output = String::from_utf8_lossy(&diff_stat.stdout);
 
-    // Check if there are working copy changes
-    // When there are no changes, jj status outputs "The working copy has no changes."
-    // When there are changes, it outputs "Working copy changes:" followed by the list
-    if status_str.contains("The working copy has no changes") {
+    // Check if the diff shows no changes
+    if diff_output.starts_with("0 files changed, 0 insertions") {
         eprintln!("PostToolUse: No changes made, abandoning workspace");
         run_jj_command(&["abandon", &workspace_change_id])?;
         // We're already back on the original after abandon
@@ -338,13 +340,6 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     Ok(())
 }
 
-fn handle_stop(input: HookInput) -> Result<()> {
-    let session_id = input.session_id;
-    eprintln!("Session {} stopped", session_id);
-    // No bookmarking - users will manage bookmarks manually
-    Ok(())
-}
-
 fn handle_session_end(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("Session {} ended", session_id);
@@ -355,23 +350,6 @@ fn handle_session_end(input: HookInput) -> Result<()> {
 
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     let _ = fs::remove_file(original_working_copy_file);
-
-    // Clean up legacy files if they exist
-    for suffix in [
-        "claude-change.txt",
-        "stashed.txt",
-        "prompt.txt",
-        "base-change.txt",
-        "sibling-change.txt",
-        "merge-change.txt",
-        "structure-created.txt",
-        "parent-change.txt",
-        "user-change.txt",
-        "claude-editing.txt",
-    ] {
-        let file = get_temp_file_path(&session_id, suffix);
-        let _ = fs::remove_file(file);
-    }
 
     Ok(())
 }
