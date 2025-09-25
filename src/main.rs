@@ -32,6 +32,9 @@ enum SessionCommands {
     Split {
         /// The session UUID to split
         session_id: String,
+        /// Custom description for the new split commit
+        #[arg(short = 'm', long = "description", value_name = "MESSAGE")]
+        description: Option<String>,
     },
 }
 
@@ -81,8 +84,11 @@ fn main() -> Result<()> {
             }
 
             match session_cmd {
-                SessionCommands::Split { session_id } => {
-                    jjcc::session_split(&session_id)?;
+                SessionCommands::Split {
+                    session_id,
+                    description,
+                } => {
+                    jjcc::session_split(&session_id, description.as_deref())?;
                 }
             }
         }
@@ -336,6 +342,7 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         // Add Claude description with session trailer
         let description =
             env::var("JJCC_DESC").unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
+
         let trailer = format!("Claude-Session-Id: {}", session_id);
 
         let prompt_file = get_temp_file_path(&session_id, "prompts.txt");

@@ -189,6 +189,28 @@ impl TestRepo {
         Ok(output.status)
     }
 
+    fn run_session_split_with_description(
+        &self,
+        session_id: &str,
+        description: &str,
+    ) -> Result<std::process::ExitStatus> {
+        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+
+        let output = Command::new(jjcc_binary)
+            .current_dir(self.dir.path())
+            .env_remove("JJCC_DISABLE")
+            .args(["session", "split", session_id, "-m", description])
+            .output()?;
+
+        // Print stderr for debugging
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("jjcc session split stderr: {}", stderr);
+        }
+
+        Ok(output.status)
+    }
+
     fn create_commit_with_session_id(&self, session_id: &str) -> Result<String> {
         // Create a new commit
         Command::new("jj")
@@ -1128,6 +1150,137 @@ fn test_session_split_working_copy_is_session() -> Result<()> {
     assert_eq!(
         parent, session_commit,
         "New commit should be child of session"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_multiline_description_with_trailer_updated_on_first_edit() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let _initial_change = repo.get_current_change_id()?;
+
+    // Set up a multi-line description with a trailer
+    let custom_description = "Feature: Add authentication system\n\n\
+        This commit implements the initial authentication system with:\n\
+        - JWT token generation\n\
+        - User login endpoints\n\
+        - Session management\n\n\
+        Co-authored-by: Alice <alice@example.com>\n\
+        Signed-off-by: Bob <bob@example.com>";
+
+    // Set the JJCC_DESCRIPTION environment variable
+    unsafe {
+        std::env::set_var("JJCC_DESCRIPTION", custom_description);
+    }
+
+    // First tool use - this should create the Claude change with the custom description
+    // and add the Claude-Session-Id trailer
+    repo.run_hook("UserPromptSubmit", None)?;
+    repo.run_hook("PreToolUse", Some("Write"))?;
+    repo.create_file("auth.rs", "impl authentication")?;
+    repo.run_hook("PostToolUse", Some("Write"))?;
+
+    // Find the Claude change that was created
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Claude change should exist");
+
+    // Get the description of the Claude change
+    let description = repo.get_change_description(&claude_change)?;
+
+    // Verify it contains the original description
+    assert!(
+        description.contains("Feature: Add authentication system"),
+        "Should contain the title from JJCC_DESCRIPTION"
+    );
+    assert!(
+        description.contains("JWT token generation"),
+        "Should contain the body content"
+    );
+
+    // Verify it contains the original trailers
+    assert!(
+        description.contains("Co-authored-by: Alice <alice@example.com>"),
+        "Should preserve Co-authored-by trailer"
+    );
+    assert!(
+        description.contains("Signed-off-by: Bob <bob@example.com>"),
+        "Should preserve Signed-off-by trailer"
+    );
+
+    // Verify the Claude-Session-Id trailer was added
+    assert!(
+        description.contains(&format!("Claude-Session-Id: {}", repo.session_id)),
+        "Should add Claude-Session-Id trailer after other trailers"
+    );
+
+    // Verify trailer ordering - Claude-Session-Id should come after other trailers
+    let co_auth_pos = description
+        .find("Co-authored-by")
+        .expect("Should find Co-authored-by");
+    let signed_pos = description
+        .find("Signed-off-by")
+        .expect("Should find Signed-off-by");
+    let claude_pos = description
+        .find("Claude-Session-Id")
+        .expect("Should find Claude-Session-Id");
+
+    assert!(
+        co_auth_pos < signed_pos && signed_pos < claude_pos,
+        "Trailers should be in order: Co-authored-by, Signed-off-by, Claude-Session-Id"
+    );
+
+    // Clean up environment variable
+    unsafe {
+        std::env::remove_var("JJCC_DESCRIPTION");
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_custom_description() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create a commit with session ID
+    repo.create_commit_with_session_id(&session_id)?;
+
+    // Move to new working copy
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Run session split with custom description
+    let custom_desc = "Custom split description for feature work";
+    let status = repo.run_session_split_with_description(&session_id, custom_desc)?;
+    assert!(
+        status.success(),
+        "Session split with custom description should succeed"
+    );
+
+    // Get the new split commit's description
+    let split_desc = repo.get_change_description("@-")?;
+
+    // Should have the custom description, NOT the original first line
+    assert!(
+        split_desc.starts_with(custom_desc),
+        "Should use custom description. Got: {}",
+        split_desc
+    );
+
+    // Should still have the session ID trailer
+    assert!(
+        split_desc.contains(&format!("Claude-Session-Id: {}", session_id)),
+        "Should have session ID trailer"
+    );
+
+    // Should NOT have the (split timestamp) suffix when using custom description
+    assert!(
+        !split_desc.contains("(split "),
+        "Should not have (split timestamp) suffix with custom description"
     );
 
     Ok(())

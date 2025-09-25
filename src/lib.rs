@@ -76,7 +76,7 @@ fn get_commit_first_line(commit_id: &str) -> Result<String> {
 }
 
 /// Split a session to create a new commit with the same session ID
-pub fn session_split(session_id: &str) -> Result<()> {
+pub fn session_split(session_id: &str, custom_description: Option<&str>) -> Result<()> {
     // Find the session commit
     let session_commit = find_session_commit(session_id)?
         .ok_or_else(|| anyhow::anyhow!("Session {} not found", session_id))?;
@@ -97,13 +97,19 @@ pub fn session_split(session_id: &str) -> Result<()> {
         false
     };
 
-    // Get the first line of the session commit's description
-    let first_line = get_commit_first_line(&session_commit)?;
-    let timestamp = Utc::now().to_rfc3339();
-    let new_description = format!(
-        "{} (split {})\n\nClaude-Session-Id: {}",
-        first_line, timestamp, session_id
-    );
+    // Build the new description
+    let new_description = if let Some(desc) = custom_description {
+        // Use custom description with just the trailer
+        format!("{}\n\nClaude-Session-Id: {}", desc, session_id)
+    } else {
+        // Get the first line of the session commit's description
+        let first_line = get_commit_first_line(&session_commit)?;
+        let timestamp = Utc::now().to_rfc3339();
+        format!(
+            "{} (split {})\n\nClaude-Session-Id: {}",
+            first_line, timestamp, session_id
+        )
+    };
 
     if is_same {
         // @ IS the session commit - create new commit on top and move @ to it
@@ -133,7 +139,13 @@ pub fn session_split(session_id: &str) -> Result<()> {
         // Get the new commit ID for display
         let new_id = get_current_change_id()?;
         eprintln!("Created split commit: {}", &new_id[0..12.min(new_id.len())]);
-        eprintln!("Description: {}", first_line);
+        let display_desc = if let Some(desc) = custom_description {
+            desc.to_string()
+        } else {
+            get_commit_first_line(&session_commit)
+                .unwrap_or_else(|_| String::from("Claude Code Session"))
+        };
+        eprintln!("Description: {}", display_desc);
     } else if is_descendant {
         // @ is a descendant of session - insert new commit before @
         eprintln!("Inserting new commit between session and working copy");
@@ -174,7 +186,13 @@ pub fn session_split(session_id: &str) -> Result<()> {
 
         let new_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         eprintln!("Created split commit: {}", &new_id[0..12.min(new_id.len())]);
-        eprintln!("Description: {}", first_line);
+        let display_desc = if let Some(desc) = custom_description {
+            desc.to_string()
+        } else {
+            get_commit_first_line(&session_commit)
+                .unwrap_or_else(|_| String::from("Claude Code Session"))
+        };
+        eprintln!("Description: {}", display_desc);
     } else {
         // @ is not a descendant of the session commit
         bail!(

@@ -10,7 +10,7 @@ Add `jjcc session split <uuid>` command that:
 
 Command structure:
 ```
-jjcc session split <uuid>
+jjcc session split <uuid> [--description <description>|-m <description>]
 ```
 
 ## Implementation Notes
@@ -21,15 +21,18 @@ jjcc session split <uuid>
   - If @ IS the session: use `jj new <change_id>` then `jj edit @+`
   - If @ is not descendant: error with message like "Working copy must be a descendant of session commit"
 - Use `jj describe -r-` with trailer formatting from existing code
-- Format: `<first_line> (split <iso8601_timestamp>)\n\nClaude-Session-Id: <uuid>`
+- Format when no custom description provided: `<first_line> (split <iso8601_timestamp>)\n\nClaude-Session-Id: <uuid>`
+- Format when custom description provided: `<custom_description>\n\nClaude-Session-Id: <uuid>`
 - Use `chrono::Utc::now().to_rfc3339()` for timestamp
+- Custom description via `--description` or `-m` flag (like jj describe)
 
 ## Acceptance Criteria
 
 ### Basic Functionality
 - [ ] Creates empty commit on top of found session commit
 - [ ] New commit has identical Claude-Session-Id trailer
-- [ ] Copies first line of description from original with `(split <timestamp>)` suffix
+- [ ] Copies first line of description from original with `(split <timestamp>)` suffix when no custom description provided
+- [ ] Uses custom description when provided via --description or -m flag
 - [ ] User remains on their working copy (@ unchanged)
 - [ ] New commit is inserted between session commit and working copy
 - [ ] Original session commit remains unchanged
@@ -50,5 +53,6 @@ jjcc session split <uuid>
 - [ ] `test_session_split_empty_commit` - verifies new commit has no changes
 - [ ] `test_session_split_working_copy_unchanged` - @ remains on working copy
 - [ ] `test_session_split_description` - copies only first line + suffix + trailer
+- [ ] `test_session_split_custom_description` - uses custom description when provided
 - [ ] `test_session_split_working_copy_is_session` - handles @ = session commit
 - [ ] `test_session_split_diverged_working_copy` - errors when @ not descendant of session
