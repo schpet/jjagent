@@ -5,9 +5,12 @@ Integrate Claude Code sessions with jj version control, automatically creating a
 ## Features
 
 - Automatically creates a "Claude Code Session" commit for each Claude session
+- Uses temporary workspaces to isolate Claude's edits from your working copy
 - Inserts Claude's changes cleanly between parent and working copy commits
 - Accumulates all changes from a session into a single commit
-- Preserves linear history with clear attribution
+- Preserves linear history with clear attribution via git-compatible trailers
+- Tracks session history with all prompts in the commit description
+- Smart change detection - only creates commits when actual changes are made
 
 ## Installation
 
@@ -102,21 +105,36 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
 ### When Claude edits files:
 
 1. **First edit in a session**:
-   - Creates a new commit using `jj new --insert-before` your working copy
-   - This becomes the "Claude Code Session" commit
+   - Creates a temporary workspace on top of your current working copy
+   - Makes the edits in this temporary workspace
+   - Rebases the workspace to insert it before your working copy
+   - Converts it to the "Claude Code Session" commit with session ID trailer
+   - Returns you to your original working copy
 
 2. **Subsequent edits in the same session**:
-   - Creates temporary child commits
-   - Squashes them back into the Claude session commit
+   - Creates a new temporary workspace on top of your current working copy
+   - Makes the edits in this temporary workspace
+   - Squashes the changes into the existing Claude session commit
+   - Returns you to your original working copy
+   - If multiple commits have the same session ID, uses the furthest descendant
 
 3. **Final structure**:
    ```
-   @  your-working-copy
+   @  your-working-copy (unchanged)
    │
-   ○  Claude Code Session <uuid>
+   ○  Claude Code Session <session-id>
+   │  Claude-Session-Id: <uuid>
    │
    ○  parent-commit
    ```
+
+### Key behaviors:
+
+- **Temporary workspaces**: All edits happen in temporary workspaces marked with `[Claude Workspace]`
+- **Session tracking**: Uses `Claude-Session-Id` git trailer for finding and updating sessions
+- **Smart abandonment**: Only abandons empty workspaces when no changes were made
+- **Always returns to original**: After each operation, you're back on your original working copy
+- **Accumulates prompts**: All prompts from a session are stored in the commit description
 
 ## Testing Your Configuration
 
@@ -142,6 +160,7 @@ You should see a new "Claude Code Session" commit in your jj log.
 ### Environment Variables
 
 - `JJCC_DESC`: Override the default "Claude Code Session" description
+- `JJCC_DISABLE=1`: Disable jjcc hooks entirely
 
 ## Development
 
