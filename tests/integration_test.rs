@@ -170,6 +170,66 @@ impl TestRepo {
             Ok(None)
         }
     }
+
+    fn run_session_split(&self, session_id: &str) -> Result<std::process::ExitStatus> {
+        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+
+        let output = Command::new(jjcc_binary)
+            .current_dir(self.dir.path())
+            .env_remove("JJCC_DISABLE")
+            .args(["session", "split", session_id])
+            .output()?;
+
+        // Print stderr for debugging
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("jjcc session split stderr: {}", stderr);
+        }
+
+        Ok(output.status)
+    }
+
+    fn create_commit_with_session_id(&self, session_id: &str) -> Result<String> {
+        // Create a new commit
+        Command::new("jj")
+            .current_dir(self.dir.path())
+            .args(["new"])
+            .output()?;
+
+        // Add description with session trailer
+        let description = format!(
+            "Claude Code Session {}\n\nClaude-Session-Id: {}",
+            session_id, session_id
+        );
+
+        Command::new("jj")
+            .current_dir(self.dir.path())
+            .args(["describe", "-m", &description])
+            .output()?;
+
+        self.get_current_change_id()
+    }
+
+    fn count_commits_with_session_id(&self, session_id: &str) -> Result<usize> {
+        let output = Command::new("jj")
+            .current_dir(self.dir.path())
+            .args([
+                "log",
+                "-r",
+                &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
+                "--no-graph",
+                "-T",
+                "change_id ++ \"\\n\"",
+            ])
+            .output()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            Ok(stdout.lines().filter(|line| !line.is_empty()).count())
+        } else {
+            Ok(0)
+        }
+    }
 }
 
 #[test]
@@ -762,6 +822,342 @@ fn test_multiple_commits_same_session_id_uses_furthest_descendant() -> Result<()
     assert!(
         !first_diff.contains("file3.txt"),
         "First should NOT have file3.txt"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_basic() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create a commit with a session ID
+    let _session_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    // Move to a new working copy commit on top
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let working_copy_before = repo.get_current_change_id()?;
+
+    // Run session split
+    let status = repo.run_session_split(&session_id)?;
+    assert!(status.success(), "Session split should succeed");
+
+    // Should still be on the same working copy
+    let working_copy_after = repo.get_current_change_id()?;
+    assert_eq!(
+        working_copy_before, working_copy_after,
+        "Should remain on working copy"
+    );
+
+    // Should now have 2 commits with the session ID
+    assert_eq!(
+        repo.count_commits_with_session_id(&session_id)?,
+        2,
+        "Should have 2 commits with session ID"
+    );
+
+    // The new commit should be between session and working copy
+    // Check by verifying @- has the session ID
+    let parent_desc = repo.get_change_description("@-")?;
+    assert!(
+        parent_desc.contains(&format!("Claude-Session-Id: {}", session_id)),
+        "Parent of @ should have session ID"
+    );
+    assert!(
+        parent_desc.contains("(split "),
+        "Parent of @ should have split timestamp"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_not_found() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let non_existent_id = uuid::Uuid::new_v4().to_string();
+
+    // Try to split a non-existent session
+    let status = repo.run_session_split(&non_existent_id)?;
+    assert!(!status.success(), "Should fail when session not found");
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_multiple_sessions() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create first commit with session ID
+    let _first_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    // Create second commit with same session ID (descendant)
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let second_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    // Move to a new working copy on top
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Run session split - should use furthest descendant
+    let status = repo.run_session_split(&session_id)?;
+    assert!(status.success(), "Should succeed with multiple sessions");
+
+    // Should now have 3 commits with the session ID
+    assert_eq!(
+        repo.count_commits_with_session_id(&session_id)?,
+        3,
+        "Should have 3 commits with session ID"
+    );
+
+    // The new commit should be on top of the second commit (furthest descendant)
+    let parent_id = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["log", "-r", "@--", "--no-graph", "-T", "change_id"])
+        .output()?;
+
+    let parent = String::from_utf8_lossy(&parent_id.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(
+        parent, second_commit,
+        "Should be on top of furthest descendant"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_preserves_original() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create a commit with session ID
+    let session_commit = repo.create_commit_with_session_id(&session_id)?;
+    let original_desc = repo.get_change_description(&session_commit)?;
+
+    // Move to new working copy
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Run session split
+    repo.run_session_split(&session_id)?;
+
+    // Original commit should be unchanged
+    let after_desc = repo.get_change_description(&session_commit)?;
+    assert_eq!(
+        original_desc, after_desc,
+        "Original commit should be unchanged"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_empty_commit() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create a commit with session ID
+    repo.create_commit_with_session_id(&session_id)?;
+
+    // Move to new working copy
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Add a file to working copy (uncommitted changes)
+    repo.create_file("working.txt", "uncommitted")?;
+
+    // Run session split
+    repo.run_session_split(&session_id)?;
+
+    // The new split commit (@-) should be empty
+    let diff_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff", "-r", "@-"])
+        .output()?;
+
+    let diff = String::from_utf8_lossy(&diff_output.stdout);
+    assert!(
+        diff.trim().is_empty() || diff.contains("0 files changed"),
+        "Split commit should be empty"
+    );
+
+    // Working copy should still have its changes
+    let wc_diff = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff"])
+        .output()?;
+
+    let wc_diff_str = String::from_utf8_lossy(&wc_diff.stdout);
+    assert!(
+        wc_diff_str.contains("working.txt"),
+        "Working copy should still have uncommitted changes"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_working_copy_unchanged() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create session commit
+    repo.create_commit_with_session_id(&session_id)?;
+
+    // Move to new working copy
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let working_copy_id = repo.get_current_change_id()?;
+
+    // Run session split
+    repo.run_session_split(&session_id)?;
+
+    // Should still be on same working copy
+    assert_eq!(
+        repo.get_current_change_id()?,
+        working_copy_id,
+        "Working copy should remain unchanged"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_description() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create session commit with specific description
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let description = format!(
+        "My Custom Session Title\nWith multiple lines\n\nClaude-Session-Id: {}",
+        session_id
+    );
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["describe", "-m", &description])
+        .output()?;
+
+    // Move to new working copy
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Run session split
+    repo.run_session_split(&session_id)?;
+
+    // Get the new split commit's description
+    let split_desc = repo.get_change_description("@-")?;
+
+    // Should have first line + suffix + trailer
+    assert!(
+        split_desc.starts_with("My Custom Session Title (split "),
+        "Should copy first line with split suffix"
+    );
+    assert!(
+        split_desc.contains(&format!("Claude-Session-Id: {}", session_id)),
+        "Should have session ID trailer"
+    );
+    assert!(
+        !split_desc.contains("With multiple lines"),
+        "Should not copy additional lines"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_working_copy_is_session() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create session commit and stay on it
+    repo.create_commit_with_session_id(&session_id)?;
+    let session_commit = repo.get_current_change_id()?;
+
+    // Run session split while @ IS the session commit
+    let status = repo.run_session_split(&session_id)?;
+    assert!(status.success(), "Should handle @ = session commit");
+
+    // Should now be on a new commit
+    let new_commit = repo.get_current_change_id()?;
+    assert_ne!(new_commit, session_commit, "Should be on new commit");
+
+    // Should have 2 commits with session ID
+    assert_eq!(
+        repo.count_commits_with_session_id(&session_id)?,
+        2,
+        "Should have 2 commits with session ID"
+    );
+
+    // New commit should be child of session commit
+    let parent_id = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["log", "-r", "@-", "--no-graph", "-T", "change_id"])
+        .output()?;
+
+    let parent = String::from_utf8_lossy(&parent_id.stdout)
+        .trim()
+        .to_string();
+    assert_eq!(
+        parent, session_commit,
+        "New commit should be child of session"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_split_diverged_working_copy() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // Create session commit
+    let _session_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    // Go back to parent and create a divergent branch
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    // Now @ is not a descendant of session commit
+    // Try to split - should fail
+    let status = repo.run_session_split(&session_id)?;
+    assert!(
+        !status.success(),
+        "Should fail when @ is not descendant of session"
     );
 
     Ok(())

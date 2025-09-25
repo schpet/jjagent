@@ -21,6 +21,18 @@ enum Commands {
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
+    /// Session management commands
+    #[command(subcommand)]
+    Session(SessionCommands),
+}
+
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// Split a session commit to continue work in a new commit
+    Split {
+        /// The session UUID to split
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -61,31 +73,46 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Check if we're in a jj repository
-    if !is_jj_repo() {
-        // Not in a jj repo - silently exit with success
-        // This allows global configuration without errors in non-jj directories
-        eprintln!("jjcc: Not in a jj repository, skipping");
-        return Ok(());
-    }
-
-    // Read JSON input from stdin
-    let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer)?;
-
-    let input: HookInput = serde_json::from_str(&buffer).context("Failed to parse JSON input")?;
-
     match cli.command {
-        Commands::Hooks(hook_cmd) => match hook_cmd {
-            HookCommands::UserPromptSubmit => handle_user_prompt_submit(input)?,
-            HookCommands::PreToolUse => handle_pre_tool_use(input)?,
-            HookCommands::PostToolUse => handle_post_tool_use(input)?,
-            HookCommands::Stop => {
-                // Stop hook - no-op, just acknowledge
-                eprintln!("Session {} stopped", input.session_id);
+        Commands::Session(session_cmd) => {
+            // Check if we're in a jj repository
+            if !is_jj_repo() {
+                anyhow::bail!("Not in a jj repository");
             }
-            HookCommands::SessionEnd => handle_session_end(input)?,
-        },
+
+            match session_cmd {
+                SessionCommands::Split { session_id } => {
+                    jjcc::session_split(&session_id)?;
+                }
+            }
+        }
+        Commands::Hooks(hook_cmd) => {
+            // Check if we're in a jj repository
+            if !is_jj_repo() {
+                // Not in a jj repo - silently exit with success
+                // This allows global configuration without errors in non-jj directories
+                eprintln!("jjcc: Not in a jj repository, skipping");
+                return Ok(());
+            }
+
+            // Read JSON input from stdin
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+
+            let input: HookInput =
+                serde_json::from_str(&buffer).context("Failed to parse JSON input")?;
+
+            match hook_cmd {
+                HookCommands::UserPromptSubmit => handle_user_prompt_submit(input)?,
+                HookCommands::PreToolUse => handle_pre_tool_use(input)?,
+                HookCommands::PostToolUse => handle_post_tool_use(input)?,
+                HookCommands::Stop => {
+                    // Stop hook - no-op, just acknowledge
+                    eprintln!("Session {} stopped", input.session_id);
+                }
+                HookCommands::SessionEnd => handle_session_end(input)?,
+            }
+        }
     }
 
     Ok(())
