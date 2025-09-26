@@ -7,6 +7,8 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "jjcc")]
@@ -129,6 +131,82 @@ fn get_temp_file_path(session_id: &str, suffix: &str) -> PathBuf {
     temp_dir.join(format!("claude-session-{}-{}", session_id, suffix))
 }
 
+fn extract_session_id_from_temp_workspace(desc: &str) -> Option<String> {
+    if !desc.contains("[Claude Workspace]") {
+        return None;
+    }
+    let lines: Vec<&str> = desc.lines().collect();
+    for line in lines {
+        if line.contains("session") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if let Some(last) = parts.last() {
+                return Some(last.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn wait_for_other_session(other_session_id: &str, current_session_id: &str) -> Result<()> {
+    let timeout_secs = 60;
+    let poll_interval = Duration::from_secs(2);
+    let start = std::time::Instant::now();
+    let mut last_message_at = start;
+    let message_interval = Duration::from_secs(30);
+
+    eprintln!(
+        "⏳ Waiting for another editing session ({}) to complete...",
+        &other_session_id[..8.min(other_session_id.len())]
+    );
+
+    loop {
+        let elapsed = start.elapsed();
+        let now = std::time::Instant::now();
+
+        if elapsed.as_secs() > timeout_secs {
+            let current_change = get_current_change_id()?;
+            anyhow::bail!(
+                "Error: Another editing session appears abandoned\n\n\
+                 Session {} created a temporary workspace but has not completed\n\
+                 within 60 seconds. It may have crashed or been force-quit.\n\n\
+                 To recover:\n\
+                 1. Run `jj edit <your-work>` to return to your working copy\n\
+                 2. Run `jj abandon <temp-workspace-id>` to clean up\n\
+                 3. Retry this session\n\n\
+                 Current change: {}\n\
+                 This session:   {}\n\
+                 Other session:  {}",
+                &other_session_id[..8.min(other_session_id.len())],
+                &current_change[..12.min(current_change.len())],
+                &current_session_id[..8.min(current_session_id.len())],
+                &other_session_id[..8.min(other_session_id.len())],
+            );
+        }
+
+        if now.duration_since(last_message_at) > message_interval {
+            eprintln!(
+                "⏳ Waiting for editing session {} ({}s)...",
+                &other_session_id[..8.min(other_session_id.len())],
+                elapsed.as_secs()
+            );
+            last_message_at = now;
+        }
+
+        let current_desc = get_current_description()?;
+        if let Some(workspace_session_id) = extract_session_id_from_temp_workspace(&current_desc) {
+            if workspace_session_id == other_session_id {
+                thread::sleep(poll_interval);
+                continue;
+            }
+        }
+
+        eprintln!("✓ Other session complete, proceeding...");
+        break;
+    }
+
+    Ok(())
+}
+
 fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
 
@@ -223,27 +301,49 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 
 fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
-    let current_change_id = get_current_change_id()?;
 
-    // Check if we're already on OUR temp workspace (continuing from previous tool)
     let current_desc = get_current_description()?;
     if current_desc.contains("[Claude Workspace]") && current_desc.contains(&session_id) {
         eprintln!("Already on temporary workspace, continuing");
         return Ok(());
     }
 
-    // Verify @ is safe to use as a base (not another session's change/workspace)
+    if current_desc.contains("[Claude Workspace]") {
+        if let Some(other_session_id) = extract_session_id_from_temp_workspace(&current_desc) {
+            if other_session_id != session_id {
+                wait_for_other_session(&other_session_id, &session_id)?;
+
+                let current_desc_after_wait = get_current_description()?;
+                if current_desc_after_wait.contains("[Claude Workspace]") {
+                    let current_change_id_after_wait = get_current_change_id()?;
+                    anyhow::bail!(
+                        "Error: Still on temporary workspace after waiting\n\n\
+                         The working copy is still a temporary Claude workspace.\n\
+                         This indicates the session did not complete properly.\n\n\
+                         To fix:\n\
+                         1. Run `jj edit <your-work>` to return to your working copy\n\
+                         2. Optionally abandon the temp workspace: `jj abandon {}`\n\
+                         3. Retry this session\n\n\
+                         Current change: {}\n\
+                         This session:   {}",
+                        &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
+                        &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
+                        &session_id[..8.min(session_id.len())],
+                    );
+                }
+            }
+        }
+    }
+
+    let current_change_id = get_current_change_id()?;
     verify_change_safe_for_session(&current_change_id, &session_id, "working copy")?;
 
-    // NOW safe to store original and proceed
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     fs::write(&original_working_copy_file, &current_change_id)?;
 
-    // Create a new temporary workspace on top of current change
     eprintln!("Creating temporary workspace for Claude edits");
     run_jj_command(&["new"])?;
 
-    // Add description to the temporary workspace
     run_jj_command(&[
         "describe",
         "-m",
@@ -260,7 +360,6 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("PostToolUse: Starting for session {}", session_id);
 
-    // Get stored original working copy
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     if !original_working_copy_file.exists() {
         eprintln!("PostToolUse: No original working copy file found");
@@ -271,7 +370,6 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         .trim()
         .to_string();
 
-    // Verify original is still safe (hasn't been corrupted during tool execution)
     verify_change_safe_for_session(
         &original_working_copy_id,
         &session_id,
@@ -369,7 +467,6 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         child.wait()?;
     }
 
-    // Navigate back to the original using jj edit
     eprintln!("PostToolUse: Switching back to original working copy");
     run_jj_command(&["edit", &original_working_copy_id])?;
 
@@ -381,7 +478,6 @@ fn handle_session_end(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("Session {} ended", session_id);
 
-    // Clean up temporary files
     let prompts_file = get_temp_file_path(&session_id, "prompts.txt");
     let _ = fs::remove_file(prompts_file);
 

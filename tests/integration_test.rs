@@ -1258,31 +1258,46 @@ fn test_concurrent_session_on_temp_workspace() -> Result<()> {
     });
 
     let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
-    let mut child = Command::new(jjcc_binary)
-        .current_dir(repo.dir.path())
-        .env_remove("JJCC_DISABLE")
-        .args(["hooks", "PreToolUse"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
+    let handle = std::thread::spawn({
+        let repo_dir = repo.dir.path().to_path_buf();
+        let input = input.clone();
+        move || -> Result<std::process::Output> {
+            let mut child = Command::new(jjcc_binary)
+                .current_dir(&repo_dir)
+                .env_remove("JJCC_DISABLE")
+                .args(["hooks", "PreToolUse"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()?;
 
-    if let Some(stdin) = child.stdin.as_mut() {
-        use std::io::Write;
-        stdin.write_all(input.to_string().as_bytes())?;
-    }
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                stdin.write_all(input.to_string().as_bytes())?;
+            }
 
-    let output = child.wait_with_output()?;
+            Ok(child.wait_with_output()?)
+        }
+    });
 
-    assert!(
-        !output.status.success(),
-        "Session B should fail to run PreToolUse on temp workspace"
-    );
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    repo.create_file("test.txt", "content")?;
+    repo.run_hook("PostToolUse", Some("Edit"))?;
+
+    let output = handle.join().unwrap()?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    if !output.status.success() {
+        eprintln!("Session B stderr: {}", stderr);
+        eprintln!("Session B stdout: {}", stdout);
+    }
+
     assert!(
-        stderr.contains("Temporary workspace detected") || stderr.contains("temporary"),
-        "Error should mention temporary workspace. Got: {}",
+        output.status.success(),
+        "Session B should succeed after Session A completes. Stderr: {}",
         stderr
     );
 
@@ -1520,6 +1535,146 @@ fn test_session_with_own_claude_change() -> Result<()> {
     let files = String::from_utf8_lossy(&files_output.stdout);
     assert!(files.contains("file1.txt"), "Should have first file");
     assert!(files.contains("file2.txt"), "Should have second file");
+
+    Ok(())
+}
+
+#[test]
+fn test_concurrent_edits_with_waiting() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    let _workspace_a = repo.get_current_change_id()?;
+    assert!(
+        repo.is_on_temp_workspace()?,
+        "Session A should be on temp workspace"
+    );
+
+    let session_b_id = uuid::Uuid::new_v4().to_string();
+
+    std::thread::spawn({
+        let repo_dir = repo.dir.path().to_path_buf();
+        let session_b_id = session_b_id.clone();
+        move || -> Result<()> {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            let input = json!({
+                "session_id": session_b_id,
+                "tool_name": "Edit"
+            });
+
+            let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+            let mut child = Command::new(jjcc_binary)
+                .current_dir(&repo_dir)
+                .env_remove("JJCC_DISABLE")
+                .args(["hooks", "PreToolUse"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()?;
+
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                stdin.write_all(input.to_string().as_bytes())?;
+            }
+
+            let _output = child.wait_with_output()?;
+            Ok(())
+        }
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    repo.create_file("file_a.txt", "session a content")?;
+    repo.run_hook("PostToolUse", Some("Edit"))?;
+
+    assert_eq!(
+        repo.get_current_change_id()?,
+        initial_change,
+        "Session A should return to initial"
+    );
+
+    std::thread::sleep(std::time::Duration::from_millis(2000));
+
+    Ok(())
+}
+
+#[test]
+fn test_same_session_can_continue_on_own_workspace() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    let workspace_id = repo.get_current_change_id()?;
+
+    let result = repo.run_hook("PreToolUse", Some("Edit"));
+    assert!(
+        result.is_ok(),
+        "Same session should be able to continue on its own workspace"
+    );
+
+    assert_eq!(
+        repo.get_current_change_id()?,
+        workspace_id,
+        "Should still be on same workspace"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_timeout_when_session_never_completes() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+
+    assert!(
+        repo.is_on_temp_workspace()?,
+        "Session A should be on temp workspace"
+    );
+
+    let session_b_id = uuid::Uuid::new_v4().to_string();
+    let input = json!({
+        "session_id": session_b_id,
+        "tool_name": "Edit"
+    });
+
+    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let start = std::time::Instant::now();
+    let mut child = Command::new(jjcc_binary)
+        .current_dir(repo.dir.path())
+        .env_remove("JJCC_DISABLE")
+        .args(["hooks", "PreToolUse"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(input.to_string().as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+    let elapsed = start.elapsed();
+
+    assert!(
+        !output.status.success(),
+        "Session B should timeout and fail"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("60 seconds") || stderr.contains("abandoned"),
+        "Error should mention timeout. Got: {}",
+        stderr
+    );
+
+    assert!(
+        elapsed.as_secs() >= 60 && elapsed.as_secs() < 65,
+        "Should timeout after approximately 60 seconds, got {} seconds",
+        elapsed.as_secs()
+    );
 
     Ok(())
 }
