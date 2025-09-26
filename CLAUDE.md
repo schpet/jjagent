@@ -1,5 +1,7 @@
 # jjcc Development Guide
 
+claude code hooks to integrate with jujutsu vcs (jj). it isolates claude code sessions to a session specific jj change id.
+
 ## Running Tests
 
 Run all tests:
