@@ -223,18 +223,21 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 
 fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
+    let current_change_id = get_current_change_id()?;
 
-    // Store the current working copy ID before we do anything
-    let original_working_copy_id = get_current_change_id()?;
-    let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
-    fs::write(&original_working_copy_file, &original_working_copy_id)?;
-
-    // Check if we're already on a temporary workspace (continuing from previous tool)
+    // Check if we're already on OUR temp workspace (continuing from previous tool)
     let current_desc = get_current_description()?;
     if current_desc.contains("[Claude Workspace]") && current_desc.contains(&session_id) {
         eprintln!("Already on temporary workspace, continuing");
         return Ok(());
     }
+
+    // Verify @ is safe to use as a base (not another session's change/workspace)
+    verify_change_safe_for_session(&current_change_id, &session_id, "working copy")?;
+
+    // NOW safe to store original and proceed
+    let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
+    fs::write(&original_working_copy_file, &current_change_id)?;
 
     // Create a new temporary workspace on top of current change
     eprintln!("Creating temporary workspace for Claude edits");
@@ -267,6 +270,13 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let original_working_copy_id = fs::read_to_string(&original_working_copy_file)?
         .trim()
         .to_string();
+
+    // Verify original is still safe (hasn't been corrupted during tool execution)
+    verify_change_safe_for_session(
+        &original_working_copy_id,
+        &session_id,
+        "stored original working copy",
+    )?;
 
     // Get current workspace change ID
     let workspace_change_id = get_current_change_id()?;
@@ -397,6 +407,83 @@ fn get_current_change_id() -> Result<String> {
         .context("Failed to get current change id")?;
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn get_session_id_from_change(change_id: &str) -> Result<Option<String>> {
+    let output = Command::new("jj")
+        .args(["log", "-r", change_id, "--no-graph", "-T", "description"])
+        .output()
+        .context("Failed to get commit description")?;
+
+    let description = String::from_utf8_lossy(&output.stdout);
+
+    for line in description.lines().rev() {
+        if line.trim().is_empty() {
+            break;
+        }
+        if let Some(session_id) = line.strip_prefix("Claude-Session-Id:") {
+            return Ok(Some(session_id.trim().to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn is_temp_workspace(change_id: &str) -> Result<bool> {
+    let output = Command::new("jj")
+        .args(["log", "-r", change_id, "--no-graph", "-T", "description"])
+        .output()
+        .context("Failed to get commit description")?;
+
+    let description = String::from_utf8_lossy(&output.stdout);
+    Ok(description.contains("[Claude Workspace]"))
+}
+
+fn verify_change_safe_for_session(
+    change_id: &str,
+    current_session_id: &str,
+    context: &str,
+) -> Result<()> {
+    if let Some(found_session_id) = get_session_id_from_change(change_id)? {
+        if found_session_id != current_session_id {
+            anyhow::bail!(
+                "Error: Concurrent Claude session detected\n\n\
+                 The {} is a Claude change from another session.\n\
+                 Another Claude Code session is likely active in this repo.\n\n\
+                 To fix:\n\
+                 1. Complete or cancel the other Claude session\n\
+                 2. Run `jj edit <your-work>` to return to your working copy\n\
+                 3. Retry this session\n\n\
+                 Current change: {}\n\
+                 This session:   {}\n\
+                 Other session:  {}",
+                context,
+                &change_id[..12.min(change_id.len())],
+                &current_session_id[..8.min(current_session_id.len())],
+                &found_session_id[..8.min(found_session_id.len())],
+            );
+        }
+    }
+
+    if is_temp_workspace(change_id)? {
+        anyhow::bail!(
+            "Error: Temporary workspace detected\n\n\
+             The {} is a temporary Claude workspace.\n\
+             This indicates an interrupted or concurrent session.\n\n\
+             To fix:\n\
+             1. Run `jj edit <your-work>` to return to your working copy\n\
+             2. Optionally abandon the temp workspace: `jj abandon {}`\n\
+             3. Retry this session\n\n\
+             Current change: {}\n\
+             This session:   {}",
+            context,
+            &change_id[..12.min(change_id.len())],
+            &change_id[..12.min(change_id.len())],
+            &current_session_id[..8.min(current_session_id.len())],
+        );
+    }
+
+    Ok(())
 }
 
 fn is_jj_repo() -> bool {

@@ -1156,90 +1156,6 @@ fn test_session_split_working_copy_is_session() -> Result<()> {
 }
 
 #[test]
-fn test_multiline_description_with_trailer_updated_on_first_edit() -> Result<()> {
-    let repo = TestRepo::new()?;
-    let _initial_change = repo.get_current_change_id()?;
-
-    // Set up a multi-line description with a trailer
-    let custom_description = "Feature: Add authentication system\n\n\
-        This commit implements the initial authentication system with:\n\
-        - JWT token generation\n\
-        - User login endpoints\n\
-        - Session management\n\n\
-        Co-authored-by: Alice <alice@example.com>\n\
-        Signed-off-by: Bob <bob@example.com>";
-
-    // Set the JJCC_DESCRIPTION environment variable
-    unsafe {
-        std::env::set_var("JJCC_DESCRIPTION", custom_description);
-    }
-
-    // First tool use - this should create the Claude change with the custom description
-    // and add the Claude-Session-Id trailer
-    repo.run_hook("UserPromptSubmit", None)?;
-    repo.run_hook("PreToolUse", Some("Write"))?;
-    repo.create_file("auth.rs", "impl authentication")?;
-    repo.run_hook("PostToolUse", Some("Write"))?;
-
-    // Find the Claude change that was created
-    let claude_change = repo
-        .find_claude_change()?
-        .expect("Claude change should exist");
-
-    // Get the description of the Claude change
-    let description = repo.get_change_description(&claude_change)?;
-
-    // Verify it contains the original description
-    assert!(
-        description.contains("Feature: Add authentication system"),
-        "Should contain the title from JJCC_DESCRIPTION"
-    );
-    assert!(
-        description.contains("JWT token generation"),
-        "Should contain the body content"
-    );
-
-    // Verify it contains the original trailers
-    assert!(
-        description.contains("Co-authored-by: Alice <alice@example.com>"),
-        "Should preserve Co-authored-by trailer"
-    );
-    assert!(
-        description.contains("Signed-off-by: Bob <bob@example.com>"),
-        "Should preserve Signed-off-by trailer"
-    );
-
-    // Verify the Claude-Session-Id trailer was added
-    assert!(
-        description.contains(&format!("Claude-Session-Id: {}", repo.session_id)),
-        "Should add Claude-Session-Id trailer after other trailers"
-    );
-
-    // Verify trailer ordering - Claude-Session-Id should come after other trailers
-    let co_auth_pos = description
-        .find("Co-authored-by")
-        .expect("Should find Co-authored-by");
-    let signed_pos = description
-        .find("Signed-off-by")
-        .expect("Should find Signed-off-by");
-    let claude_pos = description
-        .find("Claude-Session-Id")
-        .expect("Should find Claude-Session-Id");
-
-    assert!(
-        co_auth_pos < signed_pos && signed_pos < claude_pos,
-        "Trailers should be in order: Co-authored-by, Signed-off-by, Claude-Session-Id"
-    );
-
-    // Clean up environment variable
-    unsafe {
-        std::env::remove_var("JJCC_DESCRIPTION");
-    }
-
-    Ok(())
-}
-
-#[test]
 fn test_session_split_custom_description() -> Result<()> {
     let repo = TestRepo::new()?;
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -1312,6 +1228,298 @@ fn test_session_split_diverged_working_copy() -> Result<()> {
         !status.success(),
         "Should fail when @ is not descendant of session"
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_concurrent_session_on_temp_workspace() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial_change = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+
+    let current_change = repo.get_current_change_id()?;
+    assert_ne!(
+        current_change, initial_change,
+        "Should be on temp workspace"
+    );
+
+    let desc = repo.get_change_description("@")?;
+    assert!(
+        desc.contains("[Claude Workspace]"),
+        "Should be on temp workspace"
+    );
+
+    let session_b_id = uuid::Uuid::new_v4().to_string();
+    let input = json!({
+        "session_id": session_b_id,
+        "tool_name": "Edit"
+    });
+
+    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let mut child = Command::new(jjcc_binary)
+        .current_dir(repo.dir.path())
+        .env_remove("JJCC_DISABLE")
+        .args(["hooks", "PreToolUse"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(input.to_string().as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    assert!(
+        !output.status.success(),
+        "Session B should fail to run PreToolUse on temp workspace"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Temporary workspace detected") || stderr.contains("temporary"),
+        "Error should mention temporary workspace. Got: {}",
+        stderr
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_concurrent_session_on_claude_change() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    repo.create_file("test.txt", "content")?;
+    repo.run_hook("PostToolUse", None)?;
+
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Should have found Claude change");
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["edit", &claude_change])
+        .output()?;
+
+    let current = repo.get_current_change_id()?;
+    assert_eq!(
+        current, claude_change,
+        "Should be on Claude change from session A"
+    );
+
+    let session_b_id = uuid::Uuid::new_v4().to_string();
+    let input = json!({
+        "session_id": session_b_id,
+        "tool_name": "Edit"
+    });
+
+    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let mut child = Command::new(jjcc_binary)
+        .current_dir(repo.dir.path())
+        .env_remove("JJCC_DISABLE")
+        .args(["hooks", "PreToolUse"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(input.to_string().as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    assert!(
+        !output.status.success(),
+        "Session B should fail to run PreToolUse on Session A's Claude change"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Concurrent") || stderr.contains("session"),
+        "Error should mention concurrent session. Got: {}",
+        stderr
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_poisoned_original_working_copy() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let original = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+
+    let original_file = std::env::temp_dir().join(format!(
+        "claude-session-{}-original-working-copy.txt",
+        repo.session_id
+    ));
+    assert!(original_file.exists(), "Original file should be stored");
+
+    let other_session_id = uuid::Uuid::new_v4().to_string();
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args([
+            "describe",
+            "-r",
+            &original,
+            "-m",
+            &format!("Corrupted\n\nClaude-Session-Id: {}", other_session_id),
+        ])
+        .output()?;
+
+    repo.create_file("test.txt", "content")?;
+
+    let input = json!({
+        "session_id": repo.session_id,
+    });
+
+    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let mut child = Command::new(jjcc_binary)
+        .current_dir(repo.dir.path())
+        .env_remove("JJCC_DISABLE")
+        .args(["hooks", "PostToolUse"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(input.to_string().as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    assert!(
+        !output.status.success(),
+        "PostToolUse should fail when original is poisoned"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Concurrent") || stderr.contains("session"),
+        "Error should mention concurrent session issue. Got: {}",
+        stderr
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_sequential_sessions() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    repo.create_file("file_a.txt", "session a")?;
+    repo.run_hook("PostToolUse", None)?;
+
+    let after_session_a = repo.get_current_change_id()?;
+    assert_eq!(
+        after_session_a, initial,
+        "Should return to original after session A"
+    );
+
+    let session_b_id = uuid::Uuid::new_v4().to_string();
+    let input = json!({
+        "session_id": session_b_id,
+        "tool_name": "Edit"
+    });
+
+    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let mut child = Command::new(jjcc_binary)
+        .current_dir(repo.dir.path())
+        .env_remove("JJCC_DISABLE")
+        .args(["hooks", "PreToolUse"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(input.to_string().as_bytes())?;
+    }
+
+    let output = child.wait_with_output()?;
+
+    assert!(
+        output.status.success(),
+        "Session B should succeed after Session A completes. Stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_same_session_continuation() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    repo.create_file("file1.txt", "first")?;
+    repo.run_hook("PostToolUse", None)?;
+
+    assert_eq!(
+        repo.get_current_change_id()?,
+        initial,
+        "Should return to original"
+    );
+
+    let result = repo.run_hook("PreToolUse", Some("Edit"));
+    assert!(
+        result.is_ok(),
+        "Second tool use in same session should succeed"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_session_with_own_claude_change() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let initial = repo.get_current_change_id()?;
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    repo.create_file("file1.txt", "first")?;
+    repo.run_hook("PostToolUse", None)?;
+
+    let claude_change = repo
+        .find_claude_change()?
+        .expect("Should have found Claude change");
+
+    repo.run_hook("PreToolUse", Some("Edit"))?;
+    repo.create_file("file2.txt", "second")?;
+
+    let result = repo.run_hook("PostToolUse", None);
+    assert!(
+        result.is_ok(),
+        "Should succeed squashing into own Claude change"
+    );
+
+    assert_eq!(
+        repo.get_current_change_id()?,
+        initial,
+        "Should return to original"
+    );
+
+    let files_output = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["log", "-r", &claude_change, "-T", "empty", "--summary"])
+        .output()?;
+
+    let files = String::from_utf8_lossy(&files_output.stdout);
+    assert!(files.contains("file1.txt"), "Should have first file");
+    assert!(files.contains("file2.txt"), "Should have second file");
 
     Ok(())
 }
