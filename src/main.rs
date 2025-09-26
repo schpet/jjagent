@@ -173,29 +173,23 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
             // Get all prompts
             let all_prompts = fs::read_to_string(&prompt_file)?;
 
-            // Use env var or existing description (minus trailer)
-            let description = if let Ok(custom_desc) = env::var("JJCC_DESC") {
-                custom_desc
-            } else {
-                // Get existing description to preserve it
-                let desc_output = Command::new("jj")
-                    .args([
-                        "log",
-                        "-r",
-                        &session_change,
-                        "--no-graph",
-                        "-T",
-                        "description",
-                    ])
-                    .output()?;
-                let existing = String::from_utf8_lossy(&desc_output.stdout);
-                // Extract just the first line (before prompts and trailer)
-                existing
-                    .lines()
-                    .next()
-                    .unwrap_or("Claude Code Session")
-                    .to_string()
-            };
+            // Get existing description to preserve it
+            let desc_output = Command::new("jj")
+                .args([
+                    "log",
+                    "-r",
+                    &session_change,
+                    "--no-graph",
+                    "-T",
+                    "description",
+                ])
+                .output()?;
+            let existing = String::from_utf8_lossy(&desc_output.stdout);
+            let description = existing
+                .lines()
+                .next()
+                .unwrap_or("Claude Code Session")
+                .to_string();
 
             // Always add session ID as a trailer (with blank line before it)
             let trailer = format!("Claude-Session-Id: {}", session_id);
@@ -340,8 +334,7 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         ])?;
 
         // Add Claude description with session trailer
-        let description =
-            env::var("JJCC_DESC").unwrap_or_else(|_| format!("Claude Code Session {}", session_id));
+        let description = format!("Claude Code Session {}", session_id);
 
         let trailer = format!("Claude-Session-Id: {}", session_id);
 

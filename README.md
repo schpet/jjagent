@@ -159,7 +159,6 @@ You should see a new "Claude Code Session" commit in your jj log.
 
 ### Environment Variables
 
-- `JJCC_DESC`: Override the default "Claude Code Session" description
 - `JJCC_DISABLE=1`: Disable jjcc hooks entirely
 
 ## Development
