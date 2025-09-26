@@ -5,22 +5,13 @@ Integrate Claude Code sessions with jj version control, automatically creating a
 ## Features
 
 - Automatically creates a "Claude Code Session" commit for each Claude session
-- Uses temporary workspaces to isolate Claude's edits from your working copy
 - Inserts Claude's changes cleanly between parent and working copy commits
-- Accumulates all changes from a session into a single commit
-- Preserves linear history with clear attribution via git-compatible trailers
-- Tracks session history with all prompts in the commit description
-- Smart change detection - only creates commits when actual changes are made
+- Accumulates all changes from a claude session into a single commit
 
 ## Installation
 
 ```bash
 cargo install --path .
-```
-
-Or using just:
-```bash
-just install
 ```
 
 ## Claude Configuration
@@ -29,11 +20,6 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
 
 ```json
 {
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:raw.githubusercontent.com)"
-    ]
-  },
   "hooks": {
     "UserPromptSubmit": [
       {
