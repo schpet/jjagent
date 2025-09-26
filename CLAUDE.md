@@ -2,6 +2,9 @@
 
 claude code hooks to integrate with jujutsu vcs (jj). it isolates claude code sessions to a session specific jj change id.
 
+## notes
+
+- if we need to read structured information from a commit or change description/message (e.g. a claude code session id) always parse it from the trailer and not the title (which also may include it)
 ## Running Tests
 
 Run all tests:
@@ -40,3 +43,9 @@ echo "Started session: $SESSION_ID"
 claude -r "$SESSION_ID" -p "This is the second prompt"
 claude -r "$SESSION_ID" -p "This is the third prompt"
 ```
+
+### note on writing spec plans:
+
+- Focus on WHAT users need and WHY
+- Avoid HOW to implement (no tech stack, APIs, code structure)
+- Written for business stakeholders, not developers
