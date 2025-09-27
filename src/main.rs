@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use chrono::Local;
 use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use std::env;
@@ -212,89 +211,6 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 
     if let Some(prompt) = input.prompt {
         eprintln!("Session {}: {}", session_id, prompt);
-
-        // Store the prompt for later use when creating the Claude change
-        let prompt_file = get_temp_file_path(&session_id, "prompts.txt");
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
-        let prompt_entry = format!("## {}\n\n{}", timestamp, prompt);
-
-        // Append to prompts file
-        if prompt_file.exists() {
-            let existing = fs::read_to_string(&prompt_file)?;
-            fs::write(&prompt_file, format!("{}\n\n{}", existing, prompt_entry))?;
-        } else {
-            fs::write(&prompt_file, prompt_entry)?;
-        }
-
-        // Check if this session already has a change (from previous tool use)
-        // Search for the session ID trailer which is always present
-        // When multiple commits have the same session ID, jj returns them in
-        // topological order (descendants first), so we get the furthest descendant
-        let output = Command::new("jj")
-            .args([
-                "log",
-                "-r",
-                &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
-                "--no-graph",
-                "-T",
-                "change_id",
-                "--limit",
-                "1",
-            ])
-            .output()?;
-
-        if output.status.success() && !output.stdout.is_empty() {
-            // Session exists - update its description with the new prompt
-            let session_change = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            eprintln!("Found existing Claude change, updating description");
-
-            // Get all prompts
-            let all_prompts = fs::read_to_string(&prompt_file)?;
-
-            // Get existing description to preserve it
-            let desc_output = Command::new("jj")
-                .args([
-                    "log",
-                    "-r",
-                    &session_change,
-                    "--no-graph",
-                    "-T",
-                    "description",
-                ])
-                .output()?;
-            let existing = String::from_utf8_lossy(&desc_output.stdout);
-            let description = existing
-                .lines()
-                .next()
-                .unwrap_or("Claude Code Session")
-                .to_string();
-
-            // Always add session ID as a trailer (with blank line before it)
-            let trailer = format!("Claude-Session-Id: {}", session_id);
-            // Ensure blank line before trailer - trim prompts to avoid extra newlines
-            let new_desc = format!(
-                "{}\n\n{}\n\n{}",
-                description,
-                all_prompts.trim_end(),
-                trailer
-            );
-
-            // Update the description using stdin to preserve formatting
-            let mut child = Command::new("jj")
-                .args(["describe", "-r", &session_change, "--stdin"])
-                .stdin(std::process::Stdio::piped())
-                .spawn()?;
-
-            if let Some(stdin) = child.stdin.as_mut() {
-                use std::io::Write;
-                stdin.write_all(new_desc.as_bytes())?;
-            }
-
-            child.wait()?;
-
-            eprintln!("Updated session description");
-        }
-        // Don't create a change yet - wait for the first tool use
     }
     Ok(())
 }
@@ -443,16 +359,8 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
 
         // Add Claude description with session trailer
         let description = format!("Claude Code Session {}", session_id);
-
         let trailer = format!("Claude-Session-Id: {}", session_id);
-
-        let prompt_file = get_temp_file_path(&session_id, "prompts.txt");
-        let message = if prompt_file.exists() {
-            let prompts = fs::read_to_string(&prompt_file)?;
-            format!("{}\n\n{}\n\n{}", description, prompts.trim_end(), trailer)
-        } else {
-            format!("{}\n\n{}", description, trailer)
-        };
+        let message = format!("{}\n\n{}", description, trailer);
 
         // Describe the workspace (which is now the Claude change)
         let mut child = Command::new("jj")
@@ -477,9 +385,6 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
 fn handle_session_end(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("Session {} ended", session_id);
-
-    let prompts_file = get_temp_file_path(&session_id, "prompts.txt");
-    let _ = fs::remove_file(prompts_file);
 
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     let _ = fs::remove_file(original_working_copy_file);
