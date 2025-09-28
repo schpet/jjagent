@@ -552,10 +552,6 @@ fn verify_change_safe_for_session(
                 "Error: Concurrent Claude session detected\n\n\
                  The {} is a Claude change from another session.\n\
                  Another Claude Code session is likely active in this repo.\n\n\
-                 To fix:\n\
-                 1. Complete or cancel the other Claude session\n\
-                 2. Run `jj edit <your-work>` to return to your working copy\n\
-                 3. Retry this session\n\n\
                  Current change: {}\n\
                  This session:   {}\n\
                  Other session:  {}",

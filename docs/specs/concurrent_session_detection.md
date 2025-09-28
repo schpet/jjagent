@@ -156,11 +156,6 @@ Error: Concurrent Claude session detected
 The working copy is a Claude change from another session.
 Another Claude Code session is likely active in this repo.
 
-To fix:
-1. Complete or cancel the other Claude session
-2. Run `jj edit <your-work>` to return to your working copy
-3. Retry this session
-
 Current change: abc123456789
 This session:   def45678
 Other session:  abc12345
