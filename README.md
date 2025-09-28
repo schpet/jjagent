@@ -1,6 +1,6 @@
 # jjagent - JJ Claude Code Integration
 
-> !IMPORTANT
+> [!IMPORTANT]
 > WIP - not full cooked
 
 Integrate Claude Code sessions with jj version control, automatically creating and managing commits for Claude's changes.
@@ -12,12 +12,6 @@ Integrate Claude Code sessions with jj version control, automatically creating a
 - Accumulates all changes from a claude session into a single commit
 
 ## Installation
-
-```bash
-./install.sh
-```
-
-Or manually:
 
 ```bash
 cargo install --path .
