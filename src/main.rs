@@ -443,10 +443,13 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     // Invariant: Change detection must be tool-agnostic
     // `jj diff --git` detects file modifications regardless of whether they came from
     // file editing tools (Edit, Write, MultiEdit) or bash commands that modify files
-    debug_assert!(
-        diff_output.status.success(),
-        "jj diff --git must succeed for proper change attribution"
-    );
+    if !diff_output.status.success() {
+        let stderr = String::from_utf8_lossy(&diff_output.stderr);
+        anyhow::bail!(
+            "Failed to check for changes using `jj diff --git`: {}",
+            stderr
+        );
+    }
 
     // Git format produces empty output when there are no changes - simple and robust
     let has_no_changes = diff_output.stdout.is_empty();
