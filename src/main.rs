@@ -47,6 +47,8 @@ enum ClaudeCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         claude_args: Vec<String>,
     },
+    /// Print Claude Code configuration (for global setup)
+    Config,
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
@@ -116,6 +118,10 @@ fn main() -> Result<()> {
             }
 
             match claude_cmd {
+                ClaudeCommands::Config => {
+                    let config = jjagent::format_claude_settings()?;
+                    println!("{}", config);
+                }
                 ClaudeCommands::Resume {
                     ref_or_session_id,
                     message,
