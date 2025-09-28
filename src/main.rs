@@ -485,7 +485,12 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
             &existing_id[0..12.min(existing_id.len())]
         );
 
-        // Squash temp change into the existing Claude change
+        // First switch to original so temp change is not the working copy
+        // This prevents jj from creating a new empty commit when squashing
+        run_jj_command(&["edit", &original_working_copy_id])?;
+
+        // Now squash temp change into the existing Claude change
+        // Since temp_change is no longer the working copy, no empty commit is created
         run_jj_command(&[
             "squash",
             "--from",
@@ -494,6 +499,10 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
             &existing_id,
             "--use-destination-message",
         ])?;
+
+        // We're already on the original, so we can return early
+        eprintln!("PostToolUse: Back on original working copy after squash");
+        return Ok(());
     } else {
         // First tool use - insert temp change before original
         eprintln!("PostToolUse: Creating Claude change before original");
