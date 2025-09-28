@@ -132,8 +132,10 @@ fn main() -> Result<()> {
                             "\n\n"
                         };
 
-                        let description =
-                            format!("{}{}Claude-Session-Id: {}", trimmed, separator, session_id);
+                        let description = format!(
+                            "{}{}Jjagent-claude-session-id: {}",
+                            trimmed, separator, session_id
+                        );
 
                         let mut child = Command::new("jj")
                             .args(["new", "-m", &description])
@@ -206,7 +208,7 @@ fn extract_session_id_from_temp_change(desc: &str) -> Option<String> {
         if line.trim().is_empty() {
             break;
         }
-        if let Some(session_id) = line.strip_prefix("Claude-Temp-Change:") {
+        if let Some(session_id) = line.strip_prefix("Jjagent-claude-temp-change:") {
             return Some(session_id.trim().to_string());
         }
     }
@@ -327,7 +329,7 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     run_jj_command(&["new"])?;
 
     let description = format!("Temporary change for session {}", session_id);
-    let trailer = format!("Claude-Temp-Change: {}", session_id);
+    let trailer = format!("Jjagent-claude-temp-change: {}", session_id);
     let message = format!("{}\n\n{}", description, trailer);
 
     // Use stdin to pass the message with trailer
@@ -402,7 +404,10 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         .args([
             "log",
             "-r",
-            &format!("description(glob:'*Claude-Session-Id: {}*')", session_id),
+            &format!(
+                "description(glob:'*Jjagent-claude-session-id: {}*')",
+                session_id
+            ),
             "--no-graph",
             "-T",
             "change_id",
@@ -446,7 +451,7 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
 
         // Add Claude description with session trailer
         let description = format!("Claude Code Session {}", session_id);
-        let trailer = format!("Claude-Session-Id: {}", session_id);
+        let trailer = format!("Jjagent-claude-session-id: {}", session_id);
         let message = format!("{}\n\n{}", description, trailer);
 
         // Describe the temp change (which is now the Claude change)
@@ -509,7 +514,7 @@ fn get_session_id_from_change(change_id: &str) -> Result<Option<String>> {
         if line.trim().is_empty() {
             break;
         }
-        if let Some(session_id) = line.strip_prefix("Claude-Session-Id:") {
+        if let Some(session_id) = line.strip_prefix("Jjagent-claude-session-id:") {
             return Ok(Some(session_id.trim().to_string()));
         }
     }
@@ -529,7 +534,7 @@ fn get_temp_change_session_id(change_id: &str) -> Result<Option<String>> {
         if line.trim().is_empty() {
             break;
         }
-        if let Some(session_id) = line.strip_prefix("Claude-Temp-Change:") {
+        if let Some(session_id) = line.strip_prefix("Jjagent-claude-temp-change:") {
             return Ok(Some(session_id.trim().to_string()));
         }
     }
