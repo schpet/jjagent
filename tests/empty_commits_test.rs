@@ -153,40 +153,6 @@ impl TestRepo {
         }
     }
 
-    fn get_change_description(&self, change_id: &str) -> Result<String> {
-        let output = Command::new("jj")
-            .current_dir(self.dir.path())
-            .args(["log", "-r", change_id, "--no-graph", "-T", "description"])
-            .output()?;
-
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
-
-    fn find_session_change(&self) -> Result<Option<String>> {
-        let output = Command::new("jj")
-            .current_dir(self.dir.path())
-            .args([
-                "log",
-                "-r",
-                &format!(
-                    "description(glob:'*Claude-session-id: {}*')",
-                    self.session_id
-                ),
-                "--no-graph",
-                "-T",
-                "change_id ++ \"\\n\"",
-            ])
-            .output()?;
-
-        if output.status.success() && !output.stdout.is_empty() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let first = stdout.lines().next();
-            Ok(first.map(|s| s.to_string()))
-        } else {
-            Ok(None)
-        }
-    }
-
     fn count_session_commits(&self) -> Result<usize> {
         let output = Command::new("jj")
             .current_dir(self.dir.path())
