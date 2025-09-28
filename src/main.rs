@@ -296,15 +296,18 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let workspace_change_id = get_current_change_id()?;
 
     // Check if there are any changes to move using jj diff --stat
-    // This outputs "0 files changed, 0 insertions(+), 0 deletions(-)" when empty
+    // Look for the "0 files changed" pattern to determine if workspace is empty
     let diff_stat = Command::new("jj").args(["diff", "--stat"]).output()?;
     let diff_output = String::from_utf8_lossy(&diff_stat.stdout);
 
-    // Check if the diff shows no changes
-    if diff_output.starts_with("0 files changed, 0 insertions") {
+    // More robust check for no changes - look for the exact pattern
+    let has_no_changes = diff_output.trim() == "0 files changed, 0 insertions(+), 0 deletions(-)";
+
+    if has_no_changes {
         eprintln!("PostToolUse: No changes made, abandoning workspace");
         run_jj_command(&["abandon", &workspace_change_id])?;
-        // We're already back on the original after abandon
+        // After abandon, we need to explicitly return to original
+        run_jj_command(&["edit", &original_working_copy_id])?;
         return Ok(());
     }
 

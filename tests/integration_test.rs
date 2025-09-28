@@ -654,12 +654,11 @@ fn test_workspace_abandoned_when_no_changes() -> Result<()> {
     // Run PostToolUse - should abandon the empty workspace
     repo.run_hook("PostToolUse", Some("Read"))?;
 
-    // jj abandon creates a new empty commit, so we won't be exactly on the original
-    // but we should be on a child of the original
+    // After abandon with explicit edit, we should be back on the original
     let current = repo.get_current_change_id()?;
-    assert_ne!(
+    assert_eq!(
         current, initial_change,
-        "Should have a new commit after abandon"
+        "Should be back on original after abandon"
     );
 
     // Claude change should NOT exist
