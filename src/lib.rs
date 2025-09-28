@@ -10,7 +10,7 @@ pub fn find_session_commit(session_id: &str) -> Result<Option<String>> {
             "log",
             "-r",
             &format!(
-                "description(glob:'*Jjagent-claude-session-id: {}*')",
+                "description(glob:'*Claude--session-id: {}*')",
                 session_id
             ),
             "--no-graph",
@@ -103,13 +103,13 @@ pub fn session_split(session_id: &str, custom_description: Option<&str>) -> Resu
     // Build the new description
     let new_description = if let Some(desc) = custom_description {
         // Use custom description with just the trailer
-        format!("{}\n\nJjagent-claude-session-id: {}", desc, session_id)
+        format!("{}\n\nClaude--session-id: {}", desc, session_id)
     } else {
         // Get the first line of the session commit's description
         let first_line = get_commit_first_line(&session_commit)?;
         let timestamp = Utc::now().to_rfc3339();
         format!(
-            "{} (split {})\n\nJjagent-claude-session-id: {}",
+            "{} (split {})\n\nClaude--session-id: {}",
             first_line, timestamp, session_id
         )
     };
