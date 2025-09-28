@@ -1737,49 +1737,39 @@ fn test_bash_tool_creates_files() -> Result<()> {
     let repo = TestRepo::new()?;
     let initial_change = repo.get_current_change_id()?;
 
-    // First bash tool use should create temporary workspace
+    // Bash tool no longer creates temporary changes
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Bash"))?;
 
-    // We should be on a temporary workspace
+    // We should still be on the same change (no temp change for Bash)
     let current = repo.get_current_change_id()?;
-    assert_ne!(current, initial_change, "Should have moved to a new change");
-
-    let desc = repo.get_change_description(&current)?;
-    let has_temp_change_trailer = desc
-        .lines()
-        .rev()
-        .take_while(|line| !line.trim().is_empty())
-        .any(|line| line.starts_with("Claude-temp-change:"));
-    assert!(has_temp_change_trailer, "Should be on temporary workspace");
+    assert_eq!(
+        current, initial_change,
+        "Should stay on the same change for Bash tool"
+    );
 
     // Simulate bash command that creates a file
     repo.create_file("bash_created.txt", "Created by bash command")?;
 
     repo.run_hook("PostToolUse", Some("Bash"))?;
 
-    // After PostToolUse, we should be back on original working copy
+    // Should still be on the same change
     let final_change = repo.get_current_change_id()?;
     assert_eq!(
         final_change, initial_change,
-        "Should be back on original working copy"
+        "Should still be on original working copy"
     );
 
-    // Claude change should exist with our file
-    let claude_change = repo
-        .find_claude_change()?
-        .expect("Claude change should exist");
-
-    // Verify the file is in the Claude change
+    // File changes are in the working copy, not in a separate Claude change
     let diff_output = Command::new("jj")
         .current_dir(repo.dir.path())
-        .args(["diff", "-r", &claude_change])
+        .args(["diff"])
         .output()?;
 
     let diff = String::from_utf8_lossy(&diff_output.stdout);
     assert!(
         diff.contains("bash_created.txt"),
-        "File should be in Claude change, not abandoned. Diff: {}",
+        "File should be in working copy changes. Diff: {}",
         diff
     );
 
@@ -1806,27 +1796,30 @@ fn test_bash_tool_modifies_existing_files() -> Result<()> {
 
     repo.run_hook("PostToolUse", Some("Bash"))?;
 
-    // Should be back on original
+    // Should stay on the same change (no temp change for Bash)
     assert_eq!(
         repo.get_current_change_id()?,
         initial_change,
-        "Should be back on original working copy"
+        "Should stay on original working copy"
     );
 
-    // Claude change should exist with the modification
-    let claude_change = repo
-        .find_claude_change()?
-        .expect("Claude change should exist");
+    // Changes are in the working copy, not in a separate Claude change
+    let claude_change = repo.find_claude_change()?;
+    assert!(
+        claude_change.is_none(),
+        "No separate Claude change should be created for Bash operations"
+    );
 
+    // Verify the modification is in the working copy
     let diff_output = Command::new("jj")
         .current_dir(repo.dir.path())
-        .args(["diff", "-r", &claude_change])
+        .args(["diff"])
         .output()?;
 
     let diff = String::from_utf8_lossy(&diff_output.stdout);
     assert!(
         diff.contains("Modified by bash"),
-        "Modified content should be in Claude change. Diff: {}",
+        "Modified content should be in working copy. Diff: {}",
         diff
     );
 
@@ -1868,7 +1861,7 @@ fn test_mixed_edit_and_bash_workflow() -> Result<()> {
     let repo = TestRepo::new()?;
     let initial_change = repo.get_current_change_id()?;
 
-    // First operation: file edit
+    // First operation: file edit (creates Claude change)
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Edit"))?;
     repo.create_file("edit_file.txt", "Created by edit")?;
@@ -1880,7 +1873,7 @@ fn test_mixed_edit_and_bash_workflow() -> Result<()> {
         "Should be back on original after edit"
     );
 
-    // Second operation: bash command in same session
+    // Second operation: bash command in same session (no change management)
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Bash"))?;
     repo.create_file("bash_file.txt", "Created by bash")?;
@@ -1889,13 +1882,13 @@ fn test_mixed_edit_and_bash_workflow() -> Result<()> {
     assert_eq!(
         repo.get_current_change_id()?,
         initial_change,
-        "Should be back on original after bash"
+        "Should stay on original after bash"
     );
 
-    // Both files should be in the same Claude change
+    // Edit file should be in Claude change, bash file in working copy
     let claude_change = repo
         .find_claude_change()?
-        .expect("Claude change should exist");
+        .expect("Claude change should exist from Edit");
 
     let diff_output = Command::new("jj")
         .current_dir(repo.dir.path())
@@ -1908,8 +1901,20 @@ fn test_mixed_edit_and_bash_workflow() -> Result<()> {
         "Edit file should be in Claude change"
     );
     assert!(
-        diff.contains("bash_file.txt"),
-        "Bash file should be in Claude change"
+        !diff.contains("bash_file.txt"),
+        "Bash file should NOT be in Claude change"
+    );
+
+    // Bash file should be in working copy
+    let working_diff = Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["diff"])
+        .output()?;
+
+    let working_diff_str = String::from_utf8_lossy(&working_diff.stdout);
+    assert!(
+        working_diff_str.contains("bash_file.txt"),
+        "Bash file should be in working copy"
     );
 
     Ok(())
@@ -1930,40 +1935,37 @@ fn test_bash_tool_subsequent_operations() -> Result<()> {
     repo.run_hook("UserPromptSubmit", None)?;
     repo.run_hook("PreToolUse", Some("Bash"))?;
 
-    // Should be on temp workspace now
-    assert!(
-        repo.is_on_temp_workspace()?,
-        "Should be on temporary workspace for second bash"
+    // Should still be on the same change (no temp workspace for Bash)
+    assert_eq!(
+        repo.get_current_change_id()?,
+        initial_change,
+        "Should stay on original working copy for Bash"
     );
 
     repo.create_file("second_bash.txt", "Second bash operation")?;
     repo.run_hook("PostToolUse", Some("Bash"))?;
 
-    // Should be back on original
+    // Should still be on original
     assert_eq!(
         repo.get_current_change_id()?,
         initial_change,
-        "Should be back on original"
+        "Should still be on original"
     );
 
-    // Both files should be in the Claude change
-    let claude_change = repo
-        .find_claude_change()?
-        .expect("Claude change should exist");
-
+    // Both files should be in the working copy
     let diff_output = Command::new("jj")
         .current_dir(repo.dir.path())
-        .args(["diff", "-r", &claude_change])
+        .args(["diff"])
         .output()?;
 
     let diff = String::from_utf8_lossy(&diff_output.stdout);
     assert!(
         diff.contains("first_bash.txt"),
-        "First bash file should be in Claude change"
+        "First bash file should be in working copy"
     );
     assert!(
         diff.contains("second_bash.txt"),
-        "Second bash file should be in Claude change"
+        "Second bash file should be in working copy"
     );
 
     Ok(())
@@ -1971,7 +1973,7 @@ fn test_bash_tool_subsequent_operations() -> Result<()> {
 
 #[test]
 fn test_bash_tool_with_working_copy_changes() -> Result<()> {
-    // Test the scenario where bash command creates working copy changes but commit is empty
+    // Test the scenario where bash command creates working copy changes
     let repo = TestRepo::new()?;
     let initial_change = repo.get_current_change_id()?;
 
@@ -1994,26 +1996,28 @@ fn test_bash_tool_with_working_copy_changes() -> Result<()> {
         "Should have working copy changes from bash command"
     );
 
-    // Run PostToolUse - should NOT abandon despite (empty) marker in jj status
+    // Run PostToolUse for Bash - no change management happens
     repo.run_hook("PostToolUse", Some("Bash"))?;
 
-    // Should be back on original
+    // Should still be on original
     assert_eq!(repo.get_current_change_id()?, initial_change);
 
-    // Claude change should exist with our changes
-    let claude_change = repo
-        .find_claude_change()?
-        .expect("Claude change should NOT be abandoned!");
+    // No Claude change should be created for Bash
+    let claude_change = repo.find_claude_change()?;
+    assert!(
+        claude_change.is_none(),
+        "No Claude change should be created for Bash operations"
+    );
 
-    // Verify file is in Claude change
+    // Verify file is in working copy
     let diff_output = Command::new("jj")
         .current_dir(repo.dir.path())
-        .args(["diff", "-r", &claude_change])
+        .args(["diff"])
         .output()?;
     let diff = String::from_utf8_lossy(&diff_output.stdout);
     assert!(
         diff.contains("bash_working_copy.txt"),
-        "File should be in Claude change. Diff: {}",
+        "File should be in working copy. Diff: {}",
         diff
     );
 

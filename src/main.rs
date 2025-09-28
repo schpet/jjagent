@@ -92,7 +92,7 @@ struct HookInput {
     #[serde(default)]
     prompt: Option<String>,
     #[serde(default)]
-    _tool_name: Option<String>,
+    tool_name: Option<String>,
     #[serde(default)]
     _tool_input: Option<serde_json::Value>,
 }
@@ -349,6 +349,18 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
 
+    // Check if this is a file-modifying tool
+    let file_modifying_tools = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+    if let Some(ref tool_name) = input.tool_name {
+        if !file_modifying_tools.contains(&tool_name.as_str()) {
+            eprintln!(
+                "Skipping temporary change for non-file-modifying tool: {}",
+                tool_name
+            );
+            return Ok(());
+        }
+    }
+
     // Invariant: The hook should handle any tool type (Edit, Write, MultiEdit, Bash, etc.)
     // This is a critical design principle that allows for universal change attribution
 
@@ -412,6 +424,18 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
 fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("PostToolUse: Starting for session {}", session_id);
+
+    // Check if this is a file-modifying tool
+    let file_modifying_tools = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+    if let Some(ref tool_name) = input.tool_name {
+        if !file_modifying_tools.contains(&tool_name.as_str()) {
+            eprintln!(
+                "Skipping post-processing for non-file-modifying tool: {}",
+                tool_name
+            );
+            return Ok(());
+        }
+    }
 
     // Invariant: PostToolUse must handle all tool types for proper change attribution
     // Whether changes come from Edit, Write, MultiEdit, or Bash commands, the detection
