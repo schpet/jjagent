@@ -218,6 +218,9 @@ fn handle_user_prompt_submit(input: HookInput) -> Result<()> {
 fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
 
+    // Invariant: The hook should handle any tool type (Edit, Write, MultiEdit, Bash, etc.)
+    // This is a critical design principle that allows for universal change attribution
+
     let current_desc = get_current_description()?;
     if current_desc.contains("[Claude Workspace]") && current_desc.contains(&session_id) {
         eprintln!("Already on temporary workspace, continuing");
@@ -276,6 +279,10 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let session_id = input.session_id;
     eprintln!("PostToolUse: Starting for session {}", session_id);
 
+    // Invariant: PostToolUse must handle all tool types for proper change attribution
+    // Whether changes come from Edit, Write, MultiEdit, or Bash commands, the detection
+    // mechanism using `jj diff --stat` works universally
+
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     if !original_working_copy_file.exists() {
         eprintln!("PostToolUse: No original working copy file found");
@@ -299,6 +306,14 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     // Look for the "0 files changed" pattern to determine if workspace is empty
     let diff_stat = Command::new("jj").args(["diff", "--stat"]).output()?;
     let diff_output = String::from_utf8_lossy(&diff_stat.stdout);
+
+    // Invariant: Change detection must be tool-agnostic
+    // `jj diff --stat` detects file modifications regardless of whether they came from
+    // file editing tools (Edit, Write, MultiEdit) or bash commands that modify files
+    debug_assert!(
+        diff_stat.status.success(),
+        "jj diff --stat must succeed for proper change attribution"
+    );
 
     // More robust check for no changes - look for the exact pattern
     let has_no_changes = diff_output.trim() == "0 files changed, 0 insertions(+), 0 deletions(-)";

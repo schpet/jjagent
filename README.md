@@ -48,7 +48,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write",
+        "matcher": "Edit|MultiEdit|Write|Bash",
         "hooks": [
           {
             "type": "command",
@@ -59,7 +59,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write",
+        "matcher": "Edit|MultiEdit|Write|Bash",
         "hooks": [
           {
             "type": "command",
@@ -97,10 +97,18 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
 ### Important Configuration Notes
 
 - **All hooks require the nested structure**: Each hook type must have a `matcher` field (can be empty string) and a `hooks` array containing the command objects
-- **PreToolUse/PostToolUse matcher**: Set to `"Edit|MultiEdit|Write"` to only trigger on file modifications
+- **PreToolUse/PostToolUse matcher**: Set to `"Edit|MultiEdit|Write|Bash"` to trigger on file modifications and bash commands
 - **Command path**: Ensure `jjcc` is in your PATH (typically installed to `~/.cargo/bin/jjcc`)
 
 ## How It Works
+
+### Tool Support
+
+jjcc automatically attributes changes to Claude sessions for all file modification tools:
+- **File editing tools**: Edit, MultiEdit, Write
+- **Bash commands**: Any bash command that modifies files (e.g., `cargo update`, `npm install`, code generation scripts)
+
+The implementation leverages jj's universal change detection (`jj diff --stat`) which works regardless of how files are modified.
 
 ### When Claude edits files:
 
