@@ -261,10 +261,7 @@ impl TestRepo {
             .args([
                 "log",
                 "-r",
-                &format!(
-                    "description(glob:'*Claude--session-id: {}*')",
-                    session_id
-                ),
+                &format!("description(glob:'*Claude--session-id: {}*')", session_id),
                 "--no-graph",
                 "-T",
                 "change_id ++ \"\\n\"",
@@ -1415,10 +1412,7 @@ fn test_poisoned_original_working_copy() -> Result<()> {
             "-r",
             &original,
             "-m",
-            &format!(
-                "Corrupted\n\nClaude--session-id: {}",
-                other_session_id
-            ),
+            &format!("Corrupted\n\nClaude--session-id: {}", other_session_id),
         ])
         .output()?;
 
@@ -1995,6 +1989,120 @@ fn test_bash_tool_with_working_copy_changes() -> Result<()> {
         "File should be in Claude change. Diff: {}",
         diff
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_format_claude_settings() -> Result<()> {
+    let settings = jjagent::format_claude_settings()?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&settings)?;
+
+    assert!(parsed["hooks"].is_object(), "Should have hooks object");
+
+    let hooks = parsed["hooks"].as_object().unwrap();
+    assert!(
+        hooks.contains_key("UserPromptSubmit"),
+        "Should have UserPromptSubmit hook"
+    );
+    assert!(
+        hooks.contains_key("PreToolUse"),
+        "Should have PreToolUse hook"
+    );
+    assert!(
+        hooks.contains_key("PostToolUse"),
+        "Should have PostToolUse hook"
+    );
+    assert!(
+        hooks.contains_key("SessionEnd"),
+        "Should have SessionEnd hook"
+    );
+
+    let pre_tool_use = &hooks["PreToolUse"][0]["hooks"][0];
+    assert_eq!(pre_tool_use["type"], "command", "Should be command type");
+
+    let command = pre_tool_use["command"].as_str().unwrap();
+    assert!(
+        command.contains("jjagent"),
+        "Command should reference jjagent"
+    );
+    assert!(
+        command.contains("claude hooks PreToolUse"),
+        "Command should call PreToolUse hook"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_format_claude_settings_valid_json() -> Result<()> {
+    let settings = jjagent::format_claude_settings()?;
+
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&settings);
+    assert!(
+        parsed.is_ok(),
+        "Settings should be valid JSON: {}",
+        settings
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_format_claude_settings_hook_structure() -> Result<()> {
+    let settings = jjagent::format_claude_settings()?;
+    let parsed: serde_json::Value = serde_json::from_str(&settings)?;
+
+    let hook_names = [
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "SessionEnd",
+    ];
+
+    for hook_name in &hook_names {
+        let hook = &parsed["hooks"][hook_name];
+        assert!(hook.is_array(), "{} should be an array", hook_name);
+        assert_eq!(
+            hook.as_array().unwrap().len(),
+            1,
+            "{} should have 1 entry",
+            hook_name
+        );
+
+        let entry = &hook[0];
+        assert_eq!(
+            entry["matcher"], "",
+            "{} matcher should be empty string",
+            hook_name
+        );
+        assert!(
+            entry["hooks"].is_array(),
+            "{} hooks should be an array",
+            hook_name
+        );
+        assert_eq!(
+            entry["hooks"].as_array().unwrap().len(),
+            1,
+            "{} should have 1 hook",
+            hook_name
+        );
+
+        let command_hook = &entry["hooks"][0];
+        assert_eq!(
+            command_hook["type"], "command",
+            "{} type should be command",
+            hook_name
+        );
+
+        let command = command_hook["command"].as_str().unwrap();
+        assert!(
+            command.contains(hook_name),
+            "{} command should contain hook name",
+            hook_name
+        );
+    }
 
     Ok(())
 }

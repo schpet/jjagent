@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
+use serde_json::json;
 use std::process::Command;
 
 /// Find a commit with the given session ID
@@ -9,10 +10,7 @@ pub fn find_session_commit(session_id: &str) -> Result<Option<String>> {
         .args([
             "log",
             "-r",
-            &format!(
-                "description(glob:'*Claude--session-id: {}*')",
-                session_id
-            ),
+            &format!("description(glob:'*Claude--session-id: {}*')", session_id),
             "--no-graph",
             "-T",
             "change_id",
@@ -205,4 +203,53 @@ pub fn session_split(session_id: &str, custom_description: Option<&str>) -> Resu
     }
 
     Ok(())
+}
+
+pub fn get_executable_path() -> Result<std::path::PathBuf> {
+    std::env::current_exe().context("Failed to get current executable path")
+}
+
+pub fn format_claude_settings() -> Result<String> {
+    let exe_path = get_executable_path()?;
+    let exe_str = exe_path.to_string_lossy();
+
+    let user_prompt_submit_cmd = format!("{} claude hooks UserPromptSubmit", exe_str);
+    let pre_tool_use_cmd = format!("{} claude hooks PreToolUse", exe_str);
+    let post_tool_use_cmd = format!("{} claude hooks PostToolUse", exe_str);
+    let session_end_cmd = format!("{} claude hooks SessionEnd", exe_str);
+
+    let config = json!({
+        "hooks": {
+            "UserPromptSubmit": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": user_prompt_submit_cmd
+                }]
+            }],
+            "PreToolUse": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": pre_tool_use_cmd
+                }]
+            }],
+            "PostToolUse": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": post_tool_use_cmd
+                }]
+            }],
+            "SessionEnd": [{
+                "matcher": "",
+                "hooks": [{
+                    "type": "command",
+                    "command": session_end_cmd
+                }]
+            }]
+        }
+    });
+
+    Ok(serde_json::to_string(&config)?)
 }

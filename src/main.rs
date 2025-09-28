@@ -132,10 +132,8 @@ fn main() -> Result<()> {
                             "\n\n"
                         };
 
-                        let description = format!(
-                            "{}{}Claude--session-id: {}",
-                            trimmed, separator, session_id
-                        );
+                        let description =
+                            format!("{}{}Claude--session-id: {}", trimmed, separator, session_id);
 
                         let mut child = Command::new("jj")
                             .args(["new", "-m", &description])
@@ -155,7 +153,10 @@ fn main() -> Result<()> {
                         run_jj_command(&["edit", &original_working_copy_id])?;
                     }
 
+                    let settings = jjagent::format_claude_settings()?;
+
                     let mut cmd = Command::new("claude");
+                    cmd.arg("--settings").arg(&settings);
                     cmd.arg("--session-id").arg(&session_id);
                     for arg in claude_args {
                         cmd.arg(arg);
@@ -404,10 +405,7 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         .args([
             "log",
             "-r",
-            &format!(
-                "description(glob:'*Claude--session-id: {}*')",
-                session_id
-            ),
+            &format!("description(glob:'*Claude--session-id: {}*')", session_id),
             "--no-graph",
             "-T",
             "change_id",
