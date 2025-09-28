@@ -77,7 +77,7 @@ impl TestRepo {
         let mut child = Command::new(jjcc_binary)
             .current_dir(self.dir.path())
             .env_remove("JJCC_DISABLE") // Ensure JJCC_DISABLE is not set
-            .args(["hooks", hook])
+            .args(["claude", "hooks", hook])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -186,7 +186,7 @@ impl TestRepo {
         let output = Command::new(jjcc_binary)
             .current_dir(self.dir.path())
             .env_remove("JJCC_DISABLE")
-            .args(["session", "split", session_id])
+            .args(["claude", "session", "split", session_id])
             .output()?;
 
         // Print stderr for debugging
@@ -208,7 +208,7 @@ impl TestRepo {
         let output = Command::new(jjcc_binary)
             .current_dir(self.dir.path())
             .env_remove("JJCC_DISABLE")
-            .args(["session", "split", session_id, "-m", description])
+            .args(["claude", "session", "split", session_id, "-m", description])
             .output()?;
 
         // Print stderr for debugging
@@ -1277,7 +1277,7 @@ fn test_concurrent_session_on_temp_workspace() -> Result<()> {
             let mut child = Command::new(jjcc_binary)
                 .current_dir(&repo_dir)
                 .env_remove("JJCC_DISABLE")
-                .args(["hooks", "PreToolUse"])
+                .args(["claude", "hooks", "PreToolUse"])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -1349,7 +1349,7 @@ fn test_concurrent_session_on_claude_change() -> Result<()> {
     let mut child = Command::new(jjcc_binary)
         .current_dir(repo.dir.path())
         .env_remove("JJCC_DISABLE")
-        .args(["hooks", "PreToolUse"])
+        .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1412,7 +1412,7 @@ fn test_poisoned_original_working_copy() -> Result<()> {
     let mut child = Command::new(jjcc_binary)
         .current_dir(repo.dir.path())
         .env_remove("JJCC_DISABLE")
-        .args(["hooks", "PostToolUse"])
+        .args(["claude", "hooks", "PostToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1465,7 +1465,7 @@ fn test_sequential_sessions() -> Result<()> {
     let mut child = Command::new(jjcc_binary)
         .current_dir(repo.dir.path())
         .env_remove("JJCC_DISABLE")
-        .args(["hooks", "PreToolUse"])
+        .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1580,7 +1580,7 @@ fn test_concurrent_edits_with_waiting() -> Result<()> {
             let mut child = Command::new(jjcc_binary)
                 .current_dir(&repo_dir)
                 .env_remove("JJCC_DISABLE")
-                .args(["hooks", "PreToolUse"])
+                .args(["claude", "hooks", "PreToolUse"])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -1656,7 +1656,7 @@ fn test_timeout_when_session_never_completes() -> Result<()> {
     let mut child = Command::new(jjcc_binary)
         .current_dir(repo.dir.path())
         .env_remove("JJCC_DISABLE")
-        .args(["hooks", "PreToolUse"])
+        .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -19,24 +19,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Claude Code integration
+    #[command(subcommand)]
+    Claude(ClaudeCommands),
+}
+
+#[derive(Subcommand)]
+enum ClaudeCommands {
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
     /// Session management commands
     #[command(subcommand)]
     Session(SessionCommands),
-}
-
-#[derive(Subcommand)]
-enum SessionCommands {
-    /// Split a session commit to continue work in a new commit
-    Split {
-        /// The session UUID to split
-        session_id: String,
-        /// Custom description for the new split commit
-        #[arg(short = 'm', long = "description", value_name = "MESSAGE")]
-        description: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -56,6 +51,18 @@ enum HookCommands {
     /// Handle SessionEnd hook
     #[command(name = "SessionEnd")]
     SessionEnd,
+}
+
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// Split a session commit to continue work in a new commit
+    Split {
+        /// The session UUID to split
+        session_id: String,
+        /// Custom description for the new split commit
+        #[arg(short = 'm', long = "description", value_name = "MESSAGE")]
+        description: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,22 +85,7 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Session(session_cmd) => {
-            // Check if we're in a jj repository
-            if !is_jj_repo() {
-                anyhow::bail!("Not in a jj repository");
-            }
-
-            match session_cmd {
-                SessionCommands::Split {
-                    session_id,
-                    description,
-                } => {
-                    jjcc::session_split(&session_id, description.as_deref())?;
-                }
-            }
-        }
-        Commands::Hooks(hook_cmd) => {
+        Commands::Claude(claude_cmd) => {
             // Check if we're in a jj repository
             if !is_jj_repo() {
                 // Not in a jj repo - silently exit with success
@@ -102,22 +94,34 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Read JSON input from stdin
-            let mut buffer = String::new();
-            io::stdin().read_to_string(&mut buffer)?;
+            match claude_cmd {
+                ClaudeCommands::Session(session_cmd) => match session_cmd {
+                    SessionCommands::Split {
+                        session_id,
+                        description,
+                    } => {
+                        jjcc::session_split(&session_id, description.as_deref())?;
+                    }
+                },
+                ClaudeCommands::Hooks(hook_cmd) => {
+                    // Read JSON input from stdin
+                    let mut buffer = String::new();
+                    io::stdin().read_to_string(&mut buffer)?;
 
-            let input: HookInput =
-                serde_json::from_str(&buffer).context("Failed to parse JSON input")?;
+                    let input: HookInput =
+                        serde_json::from_str(&buffer).context("Failed to parse JSON input")?;
 
-            match hook_cmd {
-                HookCommands::UserPromptSubmit => handle_user_prompt_submit(input)?,
-                HookCommands::PreToolUse => handle_pre_tool_use(input)?,
-                HookCommands::PostToolUse => handle_post_tool_use(input)?,
-                HookCommands::Stop => {
-                    // Stop hook - no-op, just acknowledge
-                    eprintln!("Session {} stopped", input.session_id);
+                    match hook_cmd {
+                        HookCommands::UserPromptSubmit => handle_user_prompt_submit(input)?,
+                        HookCommands::PreToolUse => handle_pre_tool_use(input)?,
+                        HookCommands::PostToolUse => handle_post_tool_use(input)?,
+                        HookCommands::Stop => {
+                            // Stop hook - no-op, just acknowledge
+                            eprintln!("Session {} stopped", input.session_id);
+                        }
+                        HookCommands::SessionEnd => handle_session_end(input)?,
+                    }
                 }
-                HookCommands::SessionEnd => handle_session_end(input)?,
             }
         }
     }
