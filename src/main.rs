@@ -301,21 +301,20 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     // Get current temporary change ID
     let temp_change_id = get_current_change_id()?;
 
-    // Check if there are any changes to move using jj diff --stat
-    // Look for the "0 files changed" pattern to determine if temp change is empty
-    let diff_stat = Command::new("jj").args(["diff", "--stat"]).output()?;
-    let diff_output = String::from_utf8_lossy(&diff_stat.stdout);
+    // Check if there are any changes using git-format diff
+    // Git format produces empty output when there are no changes
+    let diff_output = Command::new("jj").args(["diff", "--git"]).output()?;
 
     // Invariant: Change detection must be tool-agnostic
-    // `jj diff --stat` detects file modifications regardless of whether they came from
+    // `jj diff --git` detects file modifications regardless of whether they came from
     // file editing tools (Edit, Write, MultiEdit) or bash commands that modify files
     debug_assert!(
-        diff_stat.status.success(),
-        "jj diff --stat must succeed for proper change attribution"
+        diff_output.status.success(),
+        "jj diff --git must succeed for proper change attribution"
     );
 
-    // More robust check for no changes - look for the exact pattern
-    let has_no_changes = diff_output.trim() == "0 files changed, 0 insertions(+), 0 deletions(-)";
+    // Git format produces empty output when there are no changes - simple and robust
+    let has_no_changes = diff_output.stdout.is_empty();
 
     if has_no_changes {
         eprintln!("PostToolUse: No changes made, abandoning temp change");
