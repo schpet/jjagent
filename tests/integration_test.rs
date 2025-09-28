@@ -160,7 +160,7 @@ impl TestRepo {
             if line.trim().is_empty() {
                 break;
             }
-            if line.starts_with("Claude--temp-change:") {
+            if line.starts_with("Claude-temp-change:") {
                 return Ok(true);
             }
         }
@@ -174,7 +174,7 @@ impl TestRepo {
                 "log",
                 "-r",
                 &format!(
-                    "description(glob:'*Claude--session-id: {}*')",
+                    "description(glob:'*Claude-session-id: {}*')",
                     self.session_id
                 ),
                 "--no-graph",
@@ -243,7 +243,7 @@ impl TestRepo {
 
         // Add description with session trailer
         let description = format!(
-            "Claude Code Session {}\n\nClaude--session-id: {}",
+            "Claude Code Session {}\n\nClaude-session-id: {}",
             session_id, session_id
         );
 
@@ -288,7 +288,7 @@ impl TestRepo {
             .args([
                 "log",
                 "-r",
-                &format!("description(glob:'*Claude--session-id: {}*')", session_id),
+                &format!("description(glob:'*Claude-session-id: {}*')", session_id),
                 "--no-graph",
                 "-T",
                 "change_id ++ \"\\n\"",
@@ -322,7 +322,7 @@ fn test_first_tool_use() -> Result<()> {
         .lines()
         .rev()
         .take_while(|line| !line.trim().is_empty())
-        .any(|line| line.starts_with("Claude--temp-change:"));
+        .any(|line| line.starts_with("Claude-temp-change:"));
     assert!(has_temp_change_trailer, "Should be on temporary workspace");
 
     // Simulate edit
@@ -785,7 +785,7 @@ fn test_git_interpret_trailers_compatibility() -> Result<()> {
 
     // Verify the Claude-Session-Id trailer was parsed correctly
     assert!(
-        trailers.contains(&format!("Claude--session-id: {}", repo.session_id)),
+        trailers.contains(&format!("Claude-session-id: {}", repo.session_id)),
         "Claude-Session-Id trailer should be parsed by git interpret-trailers. Got: '{}'",
         trailers
     );
@@ -821,7 +821,7 @@ fn test_multiple_commits_same_session_id_uses_furthest_descendant() -> Result<()
 
     // Add the same Claude-Session-Id trailer to this commit
     let desc_with_trailer = format!(
-        "Another Claude commit\n\nClaude--session-id: {}",
+        "Another Claude commit\n\nClaude-session-id: {}",
         repo.session_id
     );
 
@@ -938,7 +938,7 @@ fn test_session_split_basic() -> Result<()> {
     // Check by verifying @- has the session ID
     let parent_desc = repo.get_change_description("@-")?;
     assert!(
-        parent_desc.contains(&format!("Claude--session-id: {}", session_id)),
+        parent_desc.contains(&format!("Claude-session-id: {}", session_id)),
         "Parent of @ should have session ID"
     );
     assert!(
@@ -1127,7 +1127,7 @@ fn test_session_split_description() -> Result<()> {
         .output()?;
 
     let description = format!(
-        "My Custom Session Title\nWith multiple lines\n\nClaude--session-id: {}",
+        "My Custom Session Title\nWith multiple lines\n\nClaude-session-id: {}",
         session_id
     );
 
@@ -1154,7 +1154,7 @@ fn test_session_split_description() -> Result<()> {
         "Should copy first line with split suffix"
     );
     assert!(
-        split_desc.contains(&format!("Claude--session-id: {}", session_id)),
+        split_desc.contains(&format!("Claude-session-id: {}", session_id)),
         "Should have session ID trailer"
     );
     assert!(
@@ -1240,7 +1240,7 @@ fn test_session_split_custom_description() -> Result<()> {
 
     // Should still have the session ID trailer
     assert!(
-        split_desc.contains(&format!("Claude--session-id: {}", session_id)),
+        split_desc.contains(&format!("Claude-session-id: {}", session_id)),
         "Should have session ID trailer"
     );
 
@@ -1301,7 +1301,7 @@ fn test_concurrent_session_on_temp_workspace() -> Result<()> {
         .lines()
         .rev()
         .take_while(|line| !line.trim().is_empty())
-        .any(|line| line.starts_with("Claude--temp-change:"));
+        .any(|line| line.starts_with("Claude-temp-change:"));
     assert!(has_temp_change_trailer, "Should be on temp workspace");
 
     let session_b_id = uuid::Uuid::new_v4().to_string();
@@ -1439,7 +1439,7 @@ fn test_poisoned_original_working_copy() -> Result<()> {
             "-r",
             &original,
             "-m",
-            &format!("Corrupted\n\nClaude--session-id: {}", other_session_id),
+            &format!("Corrupted\n\nClaude-session-id: {}", other_session_id),
         ])
         .output()?;
 
@@ -1750,7 +1750,7 @@ fn test_bash_tool_creates_files() -> Result<()> {
         .lines()
         .rev()
         .take_while(|line| !line.trim().is_empty())
-        .any(|line| line.starts_with("Claude--temp-change:"));
+        .any(|line| line.starts_with("Claude-temp-change:"));
     assert!(has_temp_change_trailer, "Should be on temporary workspace");
 
     // Simulate bash command that creates a file
