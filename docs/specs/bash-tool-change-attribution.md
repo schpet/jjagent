@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-Currently, jjcc only captures changes made by Claude's file editing tools (Edit, MultiEdit, Write) through PreToolUse and PostToolUse hooks. However, when Claude uses the Bash tool to run commands that modify files (e.g., `cargo update` updating Cargo.lock, code generation tools, formatters), these changes are not attributed to the Claude session. This leads to:
+Currently, jjagent only captures changes made by Claude's file editing tools (Edit, MultiEdit, Write) through PreToolUse and PostToolUse hooks. However, when Claude uses the Bash tool to run commands that modify files (e.g., `cargo update` updating Cargo.lock, code generation tools, formatters), these changes are not attributed to the Claude session. This leads to:
 
 1. **Misattributed changes**: File modifications from commands appear in the user's working copy instead of the Claude session commit
 2. **Incomplete session history**: The full scope of Claude's work is not captured in the session commit
@@ -82,7 +82,7 @@ Extend the existing hook system to include Bash tool usage.
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks PreToolUse"
+            "command": "jjagent hooks PreToolUse"
           }
         ]
       }
@@ -93,7 +93,7 @@ Extend the existing hook system to include Bash tool usage.
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks PostToolUse"
+            "command": "jjagent hooks PostToolUse"
           }
         ]
       }
@@ -102,7 +102,7 @@ Extend the existing hook system to include Bash tool usage.
 }
 ```
 
-### 2. jjcc code changes:
+### 2. jjagent code changes:
 **None required!** The existing `handle_pre_tool_use` and `handle_post_tool_use` functions already:
 - Create temporary change for any tool (not specific to file editors)
 - Detect changes via `jj diff --stat` (works for any file modifications)

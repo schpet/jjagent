@@ -2,7 +2,7 @@
 
 ## Design
 
-Add `jjcc session split <uuid>` command that:
+Add `jjagent session split <uuid>` command that:
 1. Finds commit with matching Claude-Session-Id trailer (furthest descendant if multiple)
 2. Creates empty commit on top with same session ID trailer
 3. Copies commit description from original (first line only) with suffix
@@ -10,7 +10,7 @@ Add `jjcc session split <uuid>` command that:
 
 Command structure:
 ```
-jjcc session split <uuid> [--description <description>|-m <description>]
+jjagent session split <uuid> [--description <description>|-m <description>]
 ```
 
 ## Implementation Notes

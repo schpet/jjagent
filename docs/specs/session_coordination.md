@@ -4,7 +4,7 @@
 
 Multiple concurrent Claude sessions are valuable - users want to chat, search code, and work on different tasks simultaneously across terminal windows. This should work fine.
 
-The conflict happens specifically during **file editing operations** when jjcc manipulates the jj working copy:
+The conflict happens specifically during **file editing operations** when jjagent manipulates the jj working copy:
 
 **The dangerous window:**
 - **PreToolUse**: `jj new` creates temp workspace → @ moves to temp_workspace_A
@@ -197,9 +197,9 @@ When a session needs to edit files (PreToolUse), check if another session is cur
 - Changes commit hash of temp workspace repeatedly
 - May interfere with content-addressed operations
 
-#### Option B: Heartbeat File in .jj/jjcc/
+#### Option B: Heartbeat File in .jj/jjagent/
 **How it works:**
-- Session A creates `.jj/jjcc/session-<session-id>.heartbeat`
+- Session A creates `.jj/jjagent/session-<session-id>.heartbeat`
 - File contains timestamp, updated every 30 seconds (via hook or background thread)
 - Session B reads this file to check liveness
 - File deleted on normal session end
@@ -307,7 +307,7 @@ When a session needs to edit files (PreToolUse), check if another session is cur
 - **Impact**: 5 sessions queued, user confused about what's happening
 - **Mitigation**: Clear message shows which session is blocking
 - **Mitigation**: User can cancel waiting sessions (Ctrl-C)
-- **Future**: Add `jjcc session list` to show queue
+- **Future**: Add `jjagent session list` to show queue
 - **Severity**: Low (rare, user-caused)
 
 ### Risk: Deadlock (session waiting for itself)
@@ -373,8 +373,8 @@ When a session needs to edit files (PreToolUse), check if another session is cur
 ## Future Enhancements
 
 ### Phase 2: Advanced Queue Visibility
-- `jjcc session list` - show active editing sessions and queue
-- `jjcc session kill <id>` - forcefully terminate another session's edit lock
+- `jjagent session list` - show active editing sessions and queue
+- `jjagent session kill <id>` - forcefully terminate another session's edit lock
 - Show estimated wait time based on historical session duration
 
 ### Phase 3: Read-Write Locks

@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "jjcc")]
+#[command(name = "jjagent")]
 #[command(about = "JJ Claude Code - Manage jj changesets for Claude sessions")]
 struct Cli {
     #[command(subcommand)]
@@ -79,8 +79,8 @@ struct HookInput {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if env::var("JJCC_DISABLE").unwrap_or_default() == "1" {
-        eprintln!("jjcc: Disabled via JJCC_DISABLE=1");
+    if env::var("JJAGENT_DISABLE").unwrap_or_default() == "1" {
+        eprintln!("jjagent: Disabled via JJAGENT_DISABLE=1");
         return Ok(());
     }
 
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
             if !is_jj_repo() {
                 // Not in a jj repo - silently exit with success
                 // This allows global configuration without errors in non-jj directories
-                eprintln!("jjcc: Not in a jj repository, skipping");
+                eprintln!("jjagent: Not in a jj repository, skipping");
                 return Ok(());
             }
 
@@ -100,7 +100,7 @@ fn main() -> Result<()> {
                         session_id,
                         description,
                     } => {
-                        jjcc::session_split(&session_id, description.as_deref())?;
+                        jjagent::session_split(&session_id, description.as_deref())?;
                     }
                 },
                 ClaudeCommands::Hooks(hook_cmd) => {

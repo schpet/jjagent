@@ -207,4 +207,4 @@ This session:   def45678
 ### Future improvements
 - Add lock file in `.jj/` directory for global session tracking
 - Detect concurrent sessions earlier (during UserPromptSubmit)
-- Add `jjcc session list` to show active sessions
+- Add `jjagent session list` to show active sessions

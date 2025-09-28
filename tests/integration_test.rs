@@ -70,13 +70,13 @@ impl TestRepo {
             })
         };
 
-        // Get the path to the jjcc binary built by cargo
-        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+        // Get the path to the jjagent binary built by cargo
+        let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
 
-        // Build jjcc command - need to execute it with jj repo as working directory
-        let mut child = Command::new(jjcc_binary)
+        // Build jjagent command - need to execute it with jj repo as working directory
+        let mut child = Command::new(jjagent_binary)
             .current_dir(self.dir.path())
-            .env_remove("JJCC_DISABLE") // Ensure JJCC_DISABLE is not set
+            .env_remove("JJAGENT_DISABLE") // Ensure JJAGENT_DISABLE is not set
             .args(["claude", "hooks", hook])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -95,12 +95,12 @@ impl TestRepo {
         // Always print stderr for debugging
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.is_empty() {
-            eprintln!("jjcc stderr: {}", stderr);
+            eprintln!("jjagent stderr: {}", stderr);
         }
 
         // Print stderr for debugging if command fails
         if !output.status.success() {
-            eprintln!("jjcc command failed with status: {:?}", output.status);
+            eprintln!("jjagent command failed with status: {:?}", output.status);
         }
 
         Ok(())
@@ -181,18 +181,18 @@ impl TestRepo {
     }
 
     fn run_session_split(&self, session_id: &str) -> Result<std::process::ExitStatus> {
-        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+        let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
 
-        let output = Command::new(jjcc_binary)
+        let output = Command::new(jjagent_binary)
             .current_dir(self.dir.path())
-            .env_remove("JJCC_DISABLE")
+            .env_remove("JJAGENT_DISABLE")
             .args(["claude", "session", "split", session_id])
             .output()?;
 
         // Print stderr for debugging
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.is_empty() {
-            eprintln!("jjcc session split stderr: {}", stderr);
+            eprintln!("jjagent session split stderr: {}", stderr);
         }
 
         Ok(output.status)
@@ -203,18 +203,18 @@ impl TestRepo {
         session_id: &str,
         description: &str,
     ) -> Result<std::process::ExitStatus> {
-        let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+        let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
 
-        let output = Command::new(jjcc_binary)
+        let output = Command::new(jjagent_binary)
             .current_dir(self.dir.path())
-            .env_remove("JJCC_DISABLE")
+            .env_remove("JJAGENT_DISABLE")
             .args(["claude", "session", "split", session_id, "-m", description])
             .output()?;
 
         // Print stderr for debugging
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.is_empty() {
-            eprintln!("jjcc session split stderr: {}", stderr);
+            eprintln!("jjagent session split stderr: {}", stderr);
         }
 
         Ok(output.status)
@@ -1269,14 +1269,14 @@ fn test_concurrent_session_on_temp_workspace() -> Result<()> {
         "tool_name": "Edit"
     });
 
-    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
     let handle = std::thread::spawn({
         let repo_dir = repo.dir.path().to_path_buf();
         let input = input.clone();
         move || -> Result<std::process::Output> {
-            let mut child = Command::new(jjcc_binary)
+            let mut child = Command::new(jjagent_binary)
                 .current_dir(&repo_dir)
-                .env_remove("JJCC_DISABLE")
+                .env_remove("JJAGENT_DISABLE")
                 .args(["claude", "hooks", "PreToolUse"])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
@@ -1345,10 +1345,10 @@ fn test_concurrent_session_on_claude_change() -> Result<()> {
         "tool_name": "Edit"
     });
 
-    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
-    let mut child = Command::new(jjcc_binary)
+    let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
+    let mut child = Command::new(jjagent_binary)
         .current_dir(repo.dir.path())
-        .env_remove("JJCC_DISABLE")
+        .env_remove("JJAGENT_DISABLE")
         .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1408,10 +1408,10 @@ fn test_poisoned_original_working_copy() -> Result<()> {
         "session_id": repo.session_id,
     });
 
-    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
-    let mut child = Command::new(jjcc_binary)
+    let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
+    let mut child = Command::new(jjagent_binary)
         .current_dir(repo.dir.path())
-        .env_remove("JJCC_DISABLE")
+        .env_remove("JJAGENT_DISABLE")
         .args(["claude", "hooks", "PostToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1461,10 +1461,10 @@ fn test_sequential_sessions() -> Result<()> {
         "tool_name": "Edit"
     });
 
-    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
-    let mut child = Command::new(jjcc_binary)
+    let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
+    let mut child = Command::new(jjagent_binary)
         .current_dir(repo.dir.path())
-        .env_remove("JJCC_DISABLE")
+        .env_remove("JJAGENT_DISABLE")
         .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1576,10 +1576,10 @@ fn test_concurrent_edits_with_waiting() -> Result<()> {
                 "tool_name": "Edit"
             });
 
-            let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
-            let mut child = Command::new(jjcc_binary)
+            let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
+            let mut child = Command::new(jjagent_binary)
                 .current_dir(&repo_dir)
-                .env_remove("JJCC_DISABLE")
+                .env_remove("JJAGENT_DISABLE")
                 .args(["claude", "hooks", "PreToolUse"])
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
@@ -1651,11 +1651,11 @@ fn test_timeout_when_session_never_completes() -> Result<()> {
         "tool_name": "Edit"
     });
 
-    let jjcc_binary = env!("CARGO_BIN_EXE_jjcc");
+    let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
     let start = std::time::Instant::now();
-    let mut child = Command::new(jjcc_binary)
+    let mut child = Command::new(jjagent_binary)
         .current_dir(repo.dir.path())
-        .env_remove("JJCC_DISABLE")
+        .env_remove("JJAGENT_DISABLE")
         .args(["claude", "hooks", "PreToolUse"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

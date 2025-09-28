@@ -1,4 +1,4 @@
-# jjcc - JJ Claude Code Integration
+# jjagent - JJ Claude Code Integration
 
 ```
    /\_/\
@@ -31,7 +31,7 @@ cargo install --path .
 
 ## Claude Configuration
 
-Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
+Add the following to your `~/.claude/settings.json` to enable jjagent hooks:
 
 ```json
 {
@@ -42,7 +42,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc claude hooks UserPromptSubmit"
+            "command": "jjagent claude hooks UserPromptSubmit"
           }
         ]
       }
@@ -53,7 +53,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc claude hooks PreToolUse"
+            "command": "jjagent claude hooks PreToolUse"
           }
         ]
       }
@@ -64,7 +64,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc claude hooks PostToolUse"
+            "command": "jjagent claude hooks PostToolUse"
           }
         ]
       }
@@ -75,7 +75,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc claude hooks Stop"
+            "command": "jjagent claude hooks Stop"
           }
         ]
       }
@@ -86,7 +86,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc claude hooks SessionEnd"
+            "command": "jjagent claude hooks SessionEnd"
           }
         ]
       }
@@ -99,13 +99,13 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
 
 - **All hooks require the nested structure**: Each hook type must have a `matcher` field (can be empty string) and a `hooks` array containing the command objects
 - **PreToolUse/PostToolUse matcher**: Set to `"Edit|MultiEdit|Write|Bash"` to trigger on file modifications and bash commands
-- **Command path**: Ensure `jjcc` is in your PATH (typically installed to `~/.cargo/bin/jjcc`)
+- **Command path**: Ensure `jjagent` is in your PATH (typically installed to `~/.cargo/bin/jjagent`)
 
 ## How It Works
 
 ### Tool Support
 
-jjcc automatically attributes changes to Claude sessions for all file modification tools:
+jjagent automatically attributes changes to Claude sessions for all file modification tools:
 - **File editing tools**: Edit, MultiEdit, Write
 - **Bash commands**: Any bash command that modifies files (e.g., `cargo update`, `npm install`, code generation scripts)
 
@@ -162,13 +162,13 @@ You should see a new "Claude Code Session" commit in your jj log.
 ### Hooks not running
 
 1. **Check configuration format**: Ensure all hooks have the nested `matcher` and `hooks` structure
-2. **Verify jjcc is accessible**: Run `which jjcc` to ensure it's in PATH
+2. **Verify jjagent is accessible**: Run `which jjagent` to ensure it's in PATH
 3. **Debug hooks**: Run Claude with `--debug hooks` flag to see hook execution details
-4. **Not in jj repo**: jjcc silently skips when not in a jj repository
+4. **Not in jj repo**: jjagent silently skips when not in a jj repository
 
 ### Environment Variables
 
-- `JJCC_DISABLE=1`: Disable jjcc hooks entirely
+- `JJAGENT_DISABLE=1`: Disable jjagent hooks entirely
 
 ## Development
 

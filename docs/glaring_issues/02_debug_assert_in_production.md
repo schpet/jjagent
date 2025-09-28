@@ -24,7 +24,7 @@ let has_no_changes = diff_output.trim() == "0 files changed, 0 insertions(+), 0 
 ```
 
 ## Steps to Reproduce
-1. Build jjcc in release mode: `cargo build --release`
+1. Build jjagent in release mode: `cargo build --release`
 2. Create a scenario where `jj diff --stat` would fail:
    - Corrupt jj repository
    - Permission issues
