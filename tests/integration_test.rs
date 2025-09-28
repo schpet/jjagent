@@ -255,6 +255,33 @@ impl TestRepo {
         self.get_current_change_id()
     }
 
+    fn run_resume(
+        &self,
+        ref_or_session_id: &str,
+        message: Option<&str>,
+    ) -> Result<std::process::ExitStatus> {
+        let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
+
+        let mut args = vec!["claude", "resume", ref_or_session_id];
+        if let Some(msg) = message {
+            args.push("-m");
+            args.push(msg);
+        }
+
+        let output = Command::new(jjagent_binary)
+            .current_dir(self.dir.path())
+            .env_remove("JJAGENT_DISABLE")
+            .args(&args)
+            .output()?;
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            eprintln!("jjagent resume stderr: {}", stderr);
+        }
+
+        Ok(output.status)
+    }
+
     fn count_commits_with_session_id(&self, session_id: &str) -> Result<usize> {
         let output = Command::new("jj")
             .current_dir(self.dir.path())
@@ -1988,6 +2015,142 @@ fn test_bash_tool_with_working_copy_changes() -> Result<()> {
         diff.contains("bash_working_copy.txt"),
         "File should be in Claude change. Diff: {}",
         diff
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_with_session_id() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    let _session_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let status = repo.run_resume(&session_id, None)?;
+    assert!(
+        !status.success(),
+        "Resume with session ID should fail (claude not actually running)"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_with_jj_ref() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    let session_commit = repo.create_commit_with_session_id(&session_id)?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let status = repo.run_resume(&session_commit[..12], None)?;
+    assert!(
+        !status.success(),
+        "Resume with jj ref should fail (claude not actually running)"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_with_message() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    let session_commit = repo.create_commit_with_session_id(&session_id)?;
+    let original_desc = repo.get_change_description(&session_commit)?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let new_message = "Updated description for resumed session";
+    let _status = repo.run_resume(&session_id, Some(new_message));
+
+    let updated_desc = repo.get_change_description(&session_commit)?;
+
+    assert_ne!(original_desc, updated_desc, "Description should be updated");
+    assert!(
+        updated_desc.contains(new_message),
+        "Description should contain new message"
+    );
+    assert!(
+        updated_desc.contains(&format!("Claude-session-id: {}", session_id)),
+        "Description should still have session ID trailer"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_without_message_keeps_existing() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    let session_commit = repo.create_commit_with_session_id(&session_id)?;
+    let original_desc = repo.get_change_description(&session_commit)?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    let _status = repo.run_resume(&session_id, None);
+
+    let desc_after_resume = repo.get_change_description(&session_commit)?;
+
+    assert_eq!(
+        original_desc, desc_after_resume,
+        "Description should remain unchanged when no message provided"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_with_invalid_ref() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    let status = repo.run_resume("nonexistent-ref", None)?;
+    assert!(
+        !status.success(),
+        "Resume with invalid ref should fail with meaningful error"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_resume_with_non_claude_change() -> Result<()> {
+    let repo = TestRepo::new()?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["new"])
+        .output()?;
+
+    Command::new("jj")
+        .current_dir(repo.dir.path())
+        .args(["describe", "-m", "Regular commit without Claude session"])
+        .output()?;
+
+    let change_id = repo.get_current_change_id()?;
+
+    let status = repo.run_resume(&change_id[..12], None)?;
+    assert!(
+        !status.success(),
+        "Resume with non-Claude change should fail"
     );
 
     Ok(())

@@ -36,6 +36,17 @@ enum ClaudeCommands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         claude_args: Vec<String>,
     },
+    /// Resume an existing Claude session
+    Resume {
+        /// JJ ref or Claude session ID to resume
+        ref_or_session_id: String,
+        /// Optional description for the change (keeps existing if not provided)
+        #[arg(short = 'm', long = "message", value_name = "MESSAGE")]
+        message: Option<String>,
+        /// Additional arguments to pass to claude command
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        claude_args: Vec<String>,
+    },
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
@@ -105,6 +116,56 @@ fn main() -> Result<()> {
             }
 
             match claude_cmd {
+                ClaudeCommands::Resume {
+                    ref_or_session_id,
+                    message,
+                    claude_args,
+                } => {
+                    let session_id = resolve_session_id(&ref_or_session_id)?;
+
+                    if let Some(msg) = message {
+                        let claude_change = jjagent::find_session_commit(&session_id)?
+                            .ok_or_else(|| anyhow::anyhow!("Session {} not found", session_id))?;
+
+                        let trimmed = msg.trim();
+                        let separator = if trimmed
+                            .lines()
+                            .last()
+                            .and_then(|line| {
+                                let line = line.trim();
+                                if line.is_empty() {
+                                    return None;
+                                }
+                                line.split_once(':').map(|(key, _)| !key.contains(' '))
+                            })
+                            .unwrap_or(false)
+                        {
+                            "\n"
+                        } else {
+                            "\n\n"
+                        };
+
+                        let description =
+                            format!("{}{}Claude-session-id: {}", trimmed, separator, session_id);
+
+                        let mut child = Command::new("jj")
+                            .args(["describe", "-r", &claude_change, "-m", &description])
+                            .spawn()?;
+                        child.wait()?;
+                    }
+
+                    let settings = jjagent::format_claude_settings()?;
+
+                    let mut cmd = Command::new("claude");
+                    cmd.arg("--settings").arg(&settings);
+                    cmd.arg("--resume").arg(&session_id);
+                    for arg in claude_args {
+                        cmd.arg(arg);
+                    }
+
+                    let status = cmd.status()?;
+                    std::process::exit(status.code().unwrap_or(1));
+                }
                 ClaudeCommands::Start {
                     message,
                     claude_args,
@@ -518,6 +579,49 @@ fn get_session_id_from_change(change_id: &str) -> Result<Option<String>> {
     }
 
     Ok(None)
+}
+
+fn resolve_session_id(ref_or_session_id: &str) -> Result<String> {
+    if ref_or_session_id.contains('-') && ref_or_session_id.len() == 36 {
+        return Ok(ref_or_session_id.to_string());
+    }
+
+    let output = Command::new("jj")
+        .args([
+            "log",
+            "-r",
+            ref_or_session_id,
+            "--no-graph",
+            "-T",
+            "description",
+        ])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let description = String::from_utf8_lossy(&output.stdout);
+
+            for line in description.lines().rev() {
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some(session_id) = line.strip_prefix("Claude-session-id:") {
+                    return Ok(session_id.trim().to_string());
+                }
+            }
+
+            anyhow::bail!(
+                "No Claude session ID found in change {}. This does not appear to be a Claude change.",
+                ref_or_session_id
+            )
+        }
+        _ => {
+            anyhow::bail!(
+                "Failed to resolve '{}' as a jj ref. Please provide a valid jj ref or Claude session ID.",
+                ref_or_session_id
+            )
+        }
+    }
 }
 
 fn get_temp_change_session_id(change_id: &str) -> Result<Option<String>> {

@@ -132,15 +132,29 @@ The `Claude-Session-Id` trailer will be appended to your existing trailers with 
 Any additional arguments after the message will be forwarded to the `claude` command:
 
 ```bash
-# Resume a session with a custom description
-jjagent claude start -m "Continue feature work" --resume
-
 # Start with permissions bypassed (for trusted environments)
 jjagent claude start -m "Quick fix" --dangerously-skip-permissions
 
 # Combine multiple claude flags
-jjagent claude start -m "Review changes" -- --resume --permission-mode plan
+jjagent claude start -m "Review changes" -- --permission-mode plan
 ```
+
+### Resuming a Claude session
+
+Resume an existing session by passing either a jj ref or a Claude session ID:
+
+```bash
+# Resume by jj ref (change ID)
+jjagent claude resume abc123
+
+# Resume by session ID
+jjagent claude resume 550e8400-e29b-41d4-a716-446655440000
+
+# Resume and update the commit description
+jjagent claude resume abc123 -m "Updated description"
+```
+
+If no message is provided, the existing description is kept.
 
 ### Splitting a session
 
