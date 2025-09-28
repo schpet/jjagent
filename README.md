@@ -11,7 +11,14 @@ Integrate Claude Code sessions with jj version control, automatically creating a
 ## Installation
 
 ```bash
+./install.sh
+```
+
+Or manually:
+
+```bash
 cargo install --path .
+# Then update your ~/.claude/settings.json (see below)
 ```
 
 ## Claude Configuration
@@ -27,7 +34,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks UserPromptSubmit"
+            "command": "jjcc claude hooks UserPromptSubmit"
           }
         ]
       }
@@ -38,7 +45,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks PreToolUse"
+            "command": "jjcc claude hooks PreToolUse"
           }
         ]
       }
@@ -49,7 +56,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks PostToolUse"
+            "command": "jjcc claude hooks PostToolUse"
           }
         ]
       }
@@ -60,7 +67,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks Stop"
+            "command": "jjcc claude hooks Stop"
           }
         ]
       }
@@ -71,7 +78,7 @@ Add the following to your `~/.claude/settings.json` to enable jjcc hooks:
         "hooks": [
           {
             "type": "command",
-            "command": "jjcc hooks SessionEnd"
+            "command": "jjcc claude hooks SessionEnd"
           }
         ]
       }
