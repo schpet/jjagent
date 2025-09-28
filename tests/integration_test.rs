@@ -141,7 +141,16 @@ impl TestRepo {
 
     fn is_on_temp_workspace(&self) -> Result<bool> {
         let desc = self.get_change_description("@")?;
-        Ok(desc.contains("[Claude Workspace]"))
+        // Check for the new trailer-based temporary change marker
+        for line in desc.lines().rev() {
+            if line.trim().is_empty() {
+                break;
+            }
+            if line.starts_with("Claude-Temp-Change:") {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn find_claude_change(&self) -> Result<Option<String>> {
@@ -268,10 +277,12 @@ fn test_first_tool_use() -> Result<()> {
     assert_ne!(current, initial_change, "Should have moved to a new change");
 
     let desc = repo.get_change_description(&current)?;
-    assert!(
-        desc.contains("[Claude Workspace]"),
-        "Should be on temporary workspace"
-    );
+    let has_temp_change_trailer = desc
+        .lines()
+        .rev()
+        .take_while(|line| !line.trim().is_empty())
+        .any(|line| line.starts_with("Claude-Temp-Change:"));
+    assert!(has_temp_change_trailer, "Should be on temporary workspace");
 
     // Simulate edit
     repo.create_file("test1.txt", "First edit")?;
@@ -1245,10 +1256,12 @@ fn test_concurrent_session_on_temp_workspace() -> Result<()> {
     );
 
     let desc = repo.get_change_description("@")?;
-    assert!(
-        desc.contains("[Claude Workspace]"),
-        "Should be on temp workspace"
-    );
+    let has_temp_change_trailer = desc
+        .lines()
+        .rev()
+        .take_while(|line| !line.trim().is_empty())
+        .any(|line| line.starts_with("Claude-Temp-Change:"));
+    assert!(has_temp_change_trailer, "Should be on temp workspace");
 
     let session_b_id = uuid::Uuid::new_v4().to_string();
     let input = json!({
@@ -1692,10 +1705,12 @@ fn test_bash_tool_creates_files() -> Result<()> {
     assert_ne!(current, initial_change, "Should have moved to a new change");
 
     let desc = repo.get_change_description(&current)?;
-    assert!(
-        desc.contains("[Claude Workspace]"),
-        "Should be on temporary workspace"
-    );
+    let has_temp_change_trailer = desc
+        .lines()
+        .rev()
+        .take_while(|line| !line.trim().is_empty())
+        .any(|line| line.starts_with("Claude-Temp-Change:"));
+    assert!(has_temp_change_trailer, "Should be on temporary workspace");
 
     // Simulate bash command that creates a file
     repo.create_file("bash_created.txt", "Created by bash command")?;

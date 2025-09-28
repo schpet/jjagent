@@ -130,17 +130,13 @@ fn get_temp_file_path(session_id: &str, suffix: &str) -> PathBuf {
     temp_dir.join(format!("claude-session-{}-{}", session_id, suffix))
 }
 
-fn extract_session_id_from_temp_workspace(desc: &str) -> Option<String> {
-    if !desc.contains("[Claude Workspace]") {
-        return None;
-    }
-    let lines: Vec<&str> = desc.lines().collect();
-    for line in lines {
-        if line.contains("session") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if let Some(last) = parts.last() {
-                return Some(last.to_string());
-            }
+fn extract_session_id_from_temp_change(desc: &str) -> Option<String> {
+    for line in desc.lines().rev() {
+        if line.trim().is_empty() {
+            break;
+        }
+        if let Some(session_id) = line.strip_prefix("Claude-Temp-Change:") {
+            return Some(session_id.trim().to_string());
         }
     }
     None
@@ -166,11 +162,11 @@ fn wait_for_other_session(other_session_id: &str, current_session_id: &str) -> R
             let current_change = get_current_change_id()?;
             anyhow::bail!(
                 "Error: Another editing session appears abandoned\n\n\
-                 Session {} created a temporary workspace but has not completed\n\
+                 Session {} created a temporary change but has not completed\n\
                  within 60 seconds. It may have crashed or been force-quit.\n\n\
                  To recover:\n\
                  1. Run `jj edit <your-work>` to return to your working copy\n\
-                 2. Run `jj abandon <temp-workspace-id>` to clean up\n\
+                 2. Run `jj abandon <temp-change-id>` to clean up\n\
                  3. Retry this session\n\n\
                  Current change: {}\n\
                  This session:   {}\n\
@@ -192,8 +188,8 @@ fn wait_for_other_session(other_session_id: &str, current_session_id: &str) -> R
         }
 
         let current_desc = get_current_description()?;
-        if let Some(workspace_session_id) = extract_session_id_from_temp_workspace(&current_desc) {
-            if workspace_session_id == other_session_id {
+        if let Some(temp_change_session_id) = extract_session_id_from_temp_change(&current_desc) {
+            if temp_change_session_id == other_session_id {
                 thread::sleep(poll_interval);
                 continue;
             }
@@ -222,34 +218,30 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     // This is a critical design principle that allows for universal change attribution
 
     let current_desc = get_current_description()?;
-    if current_desc.contains("[Claude Workspace]") && current_desc.contains(&session_id) {
-        eprintln!("Already on temporary workspace, continuing");
-        return Ok(());
-    }
+    if let Some(temp_change_session_id) = extract_session_id_from_temp_change(&current_desc) {
+        if temp_change_session_id == session_id {
+            eprintln!("Already on temporary change, continuing");
+            return Ok(());
+        } else {
+            wait_for_other_session(&temp_change_session_id, &session_id)?;
 
-    if current_desc.contains("[Claude Workspace]") {
-        if let Some(other_session_id) = extract_session_id_from_temp_workspace(&current_desc) {
-            if other_session_id != session_id {
-                wait_for_other_session(&other_session_id, &session_id)?;
-
-                let current_desc_after_wait = get_current_description()?;
-                if current_desc_after_wait.contains("[Claude Workspace]") {
-                    let current_change_id_after_wait = get_current_change_id()?;
-                    anyhow::bail!(
-                        "Error: Still on temporary workspace after waiting\n\n\
-                         The working copy is still a temporary Claude workspace.\n\
-                         This indicates the session did not complete properly.\n\n\
-                         To fix:\n\
-                         1. Run `jj edit <your-work>` to return to your working copy\n\
-                         2. Optionally abandon the temp workspace: `jj abandon {}`\n\
-                         3. Retry this session\n\n\
-                         Current change: {}\n\
-                         This session:   {}",
-                        &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
-                        &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
-                        &session_id[..8.min(session_id.len())],
-                    );
-                }
+            let current_desc_after_wait = get_current_description()?;
+            if extract_session_id_from_temp_change(&current_desc_after_wait).is_some() {
+                let current_change_id_after_wait = get_current_change_id()?;
+                anyhow::bail!(
+                    "Error: Still on temporary change after waiting\n\n\
+                     The working copy is still a temporary Claude change.\n\
+                     This indicates the session did not complete properly.\n\n\
+                     To fix:\n\
+                     1. Run `jj edit <your-work>` to return to your working copy\n\
+                     2. Optionally abandon the temp change: `jj abandon {}`\n\
+                     3. Retry this session\n\n\
+                     Current change: {}\n\
+                     This session:   {}",
+                    &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
+                    &current_change_id_after_wait[..12.min(current_change_id_after_wait.len())],
+                    &session_id[..8.min(session_id.len())],
+                );
             }
         }
     }
@@ -260,17 +252,24 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     let original_working_copy_file = get_temp_file_path(&session_id, "original-working-copy.txt");
     fs::write(&original_working_copy_file, &current_change_id)?;
 
-    eprintln!("Creating temporary workspace for Claude edits");
+    eprintln!("Creating temporary change for Claude edits");
     run_jj_command(&["new"])?;
 
-    run_jj_command(&[
-        "describe",
-        "-m",
-        &format!(
-            "[Claude Workspace] Temporary workspace for session {}",
-            session_id
-        ),
-    ])?;
+    let description = format!("Temporary change for session {}", session_id);
+    let trailer = format!("Claude-Temp-Change: {}", session_id);
+    let message = format!("{}\n\n{}", description, trailer);
+
+    // Use stdin to pass the message with trailer
+    let mut child = Command::new("jj")
+        .args(["describe", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin.write_all(message.as_bytes())?;
+    }
+    child.wait()?;
 
     Ok(())
 }
@@ -299,11 +298,11 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         "stored original working copy",
     )?;
 
-    // Get current workspace change ID
-    let workspace_change_id = get_current_change_id()?;
+    // Get current temporary change ID
+    let temp_change_id = get_current_change_id()?;
 
     // Check if there are any changes to move using jj diff --stat
-    // Look for the "0 files changed" pattern to determine if workspace is empty
+    // Look for the "0 files changed" pattern to determine if temp change is empty
     let diff_stat = Command::new("jj").args(["diff", "--stat"]).output()?;
     let diff_output = String::from_utf8_lossy(&diff_stat.stdout);
 
@@ -319,8 +318,8 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     let has_no_changes = diff_output.trim() == "0 files changed, 0 insertions(+), 0 deletions(-)";
 
     if has_no_changes {
-        eprintln!("PostToolUse: No changes made, abandoning workspace");
-        run_jj_command(&["abandon", &workspace_change_id])?;
+        eprintln!("PostToolUse: No changes made, abandoning temp change");
+        run_jj_command(&["abandon", &temp_change_id])?;
         // After abandon, we need to explicitly return to original
         run_jj_command(&["edit", &original_working_copy_id])?;
         return Ok(());
@@ -352,25 +351,25 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
             &existing_id[0..12.min(existing_id.len())]
         );
 
-        // Squash workspace changes into the existing Claude change
+        // Squash temp change into the existing Claude change
         run_jj_command(&[
             "squash",
             "--from",
-            &workspace_change_id,
+            &temp_change_id,
             "--into",
             &existing_id,
             "--use-destination-message",
         ])?;
     } else {
-        // First tool use - insert workspace before original
+        // First tool use - insert temp change before original
         eprintln!("PostToolUse: Creating Claude change before original");
 
-        // Use jj rebase to move our workspace change before the original
+        // Use jj rebase to move our temp change before the original
         // This rebases original on top of our changes
         run_jj_command(&[
             "rebase",
             "-r",
-            &workspace_change_id,
+            &temp_change_id,
             "--insert-before",
             &original_working_copy_id,
         ])?;
@@ -380,9 +379,9 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
         let trailer = format!("Claude-Session-Id: {}", session_id);
         let message = format!("{}\n\n{}", description, trailer);
 
-        // Describe the workspace (which is now the Claude change)
+        // Describe the temp change (which is now the Claude change)
         let mut child = Command::new("jj")
-            .args(["describe", "-r", &workspace_change_id, "--stdin"])
+            .args(["describe", "-r", &temp_change_id, "--stdin"])
             .stdin(std::process::Stdio::piped())
             .spawn()?;
 
@@ -448,14 +447,28 @@ fn get_session_id_from_change(change_id: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
-fn is_temp_workspace(change_id: &str) -> Result<bool> {
+fn get_temp_change_session_id(change_id: &str) -> Result<Option<String>> {
     let output = Command::new("jj")
         .args(["log", "-r", change_id, "--no-graph", "-T", "description"])
         .output()
         .context("Failed to get commit description")?;
 
     let description = String::from_utf8_lossy(&output.stdout);
-    Ok(description.contains("[Claude Workspace]"))
+
+    for line in description.lines().rev() {
+        if line.trim().is_empty() {
+            break;
+        }
+        if let Some(session_id) = line.strip_prefix("Claude-Temp-Change:") {
+            return Ok(Some(session_id.trim().to_string()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn is_temp_change(change_id: &str) -> Result<bool> {
+    Ok(get_temp_change_session_id(change_id)?.is_some())
 }
 
 fn verify_change_safe_for_session(
@@ -484,14 +497,14 @@ fn verify_change_safe_for_session(
         }
     }
 
-    if is_temp_workspace(change_id)? {
+    if is_temp_change(change_id)? {
         anyhow::bail!(
-            "Error: Temporary workspace detected\n\n\
-             The {} is a temporary Claude workspace.\n\
+            "Error: Temporary change detected\n\n\
+             The {} is a temporary Claude change.\n\
              This indicates an interrupted or concurrent session.\n\n\
              To fix:\n\
              1. Run `jj edit <your-work>` to return to your working copy\n\
-             2. Optionally abandon the temp workspace: `jj abandon {}`\n\
+             2. Optionally abandon the temp change: `jj abandon {}`\n\
              3. Retry this session\n\n\
              Current change: {}\n\
              This session:   {}",
