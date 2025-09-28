@@ -1,12 +1,7 @@
 # jjagent - JJ Claude Code Integration
 
-```
-   /\_/\
-  ( o.o )
-   > ^ <
-  /|   |\
- (_|   |_)
-```
+> !IMPORTANT
+> WIP - not full cooked
 
 Integrate Claude Code sessions with jj version control, automatically creating and managing commits for Claude's changes.
 
