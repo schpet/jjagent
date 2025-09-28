@@ -58,6 +58,15 @@ impl TestRepo {
     }
 
     fn run_hook(&self, hook: &str, tool_name: Option<&str>) -> Result<()> {
+        self.run_hook_with_env(hook, tool_name, vec![])
+    }
+
+    fn run_hook_with_env(
+        &self,
+        hook: &str,
+        tool_name: Option<&str>,
+        env_vars: Vec<(&str, &str)>,
+    ) -> Result<()> {
         let input = if let Some(tool) = tool_name {
             json!({
                 "session_id": self.session_id,
@@ -74,14 +83,19 @@ impl TestRepo {
         let jjagent_binary = env!("CARGO_BIN_EXE_jjagent");
 
         // Build jjagent command - need to execute it with jj repo as working directory
-        let mut child = Command::new(jjagent_binary)
-            .current_dir(self.dir.path())
-            .env_remove("JJAGENT_DISABLE") // Ensure JJAGENT_DISABLE is not set
+        let mut cmd = Command::new(jjagent_binary);
+        cmd.current_dir(self.dir.path())
+            .env_remove("JJAGENT_DISABLE")
             .args(["claude", "hooks", hook])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .stderr(std::process::Stdio::piped());
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let mut child = cmd.spawn()?;
 
         // Write input
         if let Some(stdin) = child.stdin.as_mut() {

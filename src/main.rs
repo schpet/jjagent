@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "jjagent")]
@@ -26,6 +27,15 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ClaudeCommands {
+    /// Start a new Claude session with an initial description
+    Start {
+        /// Initial description for the change
+        #[arg(short = 'm', long = "message", value_name = "MESSAGE")]
+        message: Option<String>,
+        /// Additional arguments to pass to claude command
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        claude_args: Vec<String>,
+    },
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
@@ -95,6 +105,63 @@ fn main() -> Result<()> {
             }
 
             match claude_cmd {
+                ClaudeCommands::Start {
+                    message,
+                    claude_args,
+                } => {
+                    let session_id = Uuid::new_v4().to_string();
+
+                    if let Some(msg) = message {
+                        let original_working_copy_id = get_current_change_id()?;
+
+                        let trimmed = msg.trim();
+                        let separator = if trimmed
+                            .lines()
+                            .last()
+                            .and_then(|line| {
+                                let line = line.trim();
+                                if line.is_empty() {
+                                    return None;
+                                }
+                                line.split_once(':').map(|(key, _)| !key.contains(' '))
+                            })
+                            .unwrap_or(false)
+                        {
+                            "\n"
+                        } else {
+                            "\n\n"
+                        };
+
+                        let description =
+                            format!("{}{}Claude-Session-Id: {}", trimmed, separator, session_id);
+
+                        let mut child = Command::new("jj")
+                            .args(["new", "-m", &description])
+                            .spawn()?;
+                        child.wait()?;
+
+                        let new_change_id = get_current_change_id()?;
+
+                        run_jj_command(&[
+                            "rebase",
+                            "-r",
+                            &new_change_id,
+                            "--insert-before",
+                            &original_working_copy_id,
+                        ])?;
+
+                        run_jj_command(&["edit", &original_working_copy_id])?;
+                    }
+
+                    let mut cmd = Command::new("claude");
+                    cmd.arg("--session-id").arg(&session_id);
+                    for arg in claude_args {
+                        cmd.arg(arg);
+                    }
+
+                    let status = cmd.status()?;
+                    std::process::exit(status.code().unwrap_or(1));
+                }
                 ClaudeCommands::Session(session_cmd) => match session_cmd {
                     SessionCommands::Split {
                         session_id,

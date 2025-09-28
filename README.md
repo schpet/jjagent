@@ -49,7 +49,7 @@ Add the following to your `~/.claude/settings.json` to enable jjagent hooks:
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write|Bash",
+        "matcher": "Edit|MultiEdit|Write",
         "hooks": [
           {
             "type": "command",
@@ -60,7 +60,7 @@ Add the following to your `~/.claude/settings.json` to enable jjagent hooks:
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|MultiEdit|Write|Bash",
+        "matcher": "Edit|MultiEdit|Write",
         "hooks": [
           {
             "type": "command",
@@ -98,18 +98,71 @@ Add the following to your `~/.claude/settings.json` to enable jjagent hooks:
 ### Important Configuration Notes
 
 - **All hooks require the nested structure**: Each hook type must have a `matcher` field (can be empty string) and a `hooks` array containing the command objects
-- **PreToolUse/PostToolUse matcher**: Set to `"Edit|MultiEdit|Write|Bash"` to trigger on file modifications and bash commands
+- **PreToolUse/PostToolUse matcher**: Set to `"Edit|MultiEdit|Write"` to trigger on file editing tools only
+  - **Bash tool excluded**: Changes made via Bash commands are NOT tracked, as Bash is often used for non-code tasks (running builds, tests, package managers, etc.)
 - **Command path**: Ensure `jjagent` is in your PATH (typically installed to `~/.cargo/bin/jjagent`)
+
+## Usage
+
+### Starting a Claude session with a custom description
+
+Instead of running `claude` directly, use `jjagent claude start` to set an initial description for the jj change:
+
+```bash
+jjagent claude start -m "Feature XYZ"
+```
+
+This will:
+1. Create a new jj change with description "Feature XYZ\n\nClaude-Session-Id: {session_id}"
+2. Launch Claude
+3. All edits will be squashed into this change, preserving the "Feature XYZ" description
+
+You can also include existing trailers in your message:
+
+```bash
+jjagent claude start -m "Feature XYZ
+
+Implement the new feature
+
+Linear-issue-id: ABC-123"
+```
+
+The `Claude-Session-Id` trailer will be appended to your existing trailers with proper formatting.
+
+Any additional arguments after the message will be forwarded to the `claude` command:
+
+```bash
+# Resume a session with a custom description
+jjagent claude start -m "Continue feature work" --resume
+
+# Start with permissions bypassed (for trusted environments)
+jjagent claude start -m "Quick fix" --dangerously-skip-permissions
+
+# Combine multiple claude flags
+jjagent claude start -m "Review changes" -- --resume --permission-mode plan
+```
+
+### Splitting a session
+
+If you want to continue working in the same Claude session but create a new commit:
+
+```bash
+jjagent claude session split <session-id>
+```
+
+Or with a custom description:
+
+```bash
+jjagent claude session split <session-id> -m "Part 2: Implementation"
+```
 
 ## How It Works
 
 ### Tool Support
 
-jjagent automatically attributes changes to Claude sessions for all file modification tools:
+jjagent automatically attributes changes to Claude sessions for file editing tools only:
 - **File editing tools**: Edit, MultiEdit, Write
-- **Bash commands**: Any bash command that modifies files (e.g., `cargo update`, `npm install`, code generation scripts)
-
-The implementation leverages jj's universal change detection (`jj diff --stat`) which works regardless of how files are modified.
+- **Bash commands**: **NOT tracked** - Bash is often used for non-code tasks like running builds, tests, installing packages, etc. If Claude modifies files via Bash, those changes will not be associated with the Claude session commit.
 
 ### When Claude edits files:
 
