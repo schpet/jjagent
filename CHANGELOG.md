@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- fix CI
+
 ## [0.1.2] - 2025-09-28
 
 ### Fixed
