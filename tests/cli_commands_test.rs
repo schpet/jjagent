@@ -47,15 +47,6 @@ impl TestRepo {
             .args(args)
             .output()?)
     }
-
-    fn get_current_description(&self) -> Result<String> {
-        let output = Command::new("jj")
-            .current_dir(self.dir.path())
-            .args(["log", "-r", "@", "--no-graph", "-T", "description"])
-            .output()?;
-
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
 }
 
 #[test]
