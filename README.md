@@ -3,24 +3,59 @@
 > [!IMPORTANT]
 > WIP - not fully cooked
 
-automatically squashes claude's changes into a claude session specific change that is added between `@` and `@-` – allowing you to run multiple claude sessions and track the changes on a separate change id.
+tracks claude code sessions automatically as distinct [changes](https://jj-vcs.github.io/jj/latest/glossary/#change). allowing you and coding agents to work together at the same time while keeping an organized set of changes to review.
+
+> You see, jj was designed around a single feature requirement. That requirement led to a very simple design addition to Git's DVCS model, that naturally enabled all of the features:
+>
+> jj was designed to support concurrency.
+
+– [Jujutsu is great for the wrong reason](https://www.felesatra.moe/blog/2024/12/23/jj-is-great-for-the-wrong-reason)
+
+## how it works
+
+agent changes will be inserted between `@` and `@-`. your working copy is rebased automatically.
+
+**NOT IMPLEMENTED YET** eventually, would like to also have some convenient support for workspaces, e.g. so one agent can run their tests and break things without affecting other agents or yourself.
+
+> Workspaces let you add additional working copies attached to the same repo. A common use case is so you can run a slow build or test in one workspace while you're continuing to write code in another workspace.
+
+– [jj workspace docs](https://jj-vcs.github.io/jj/latest/cli-reference/#jj-workspace)
 
 ## installation
 
-homebrew:
+<details>
+<summary>Homebrew</summary>
 
 ```bash
 brew install schpet/tap/jjagent
 ```
+</details>
 
-or grab a release:
+<details>
+<summary>Download binary</summary>
 
+Grab the latest release from:
 https://github.com/schpet/jjagent/releases/latest
+</details>
 
-or, clone the repo locally
+<details>
+<summary>Build from source</summary>
+
+Clone the repo and install locally:
 
 ```bash
 cargo install --path .
+```
+</details>
+
+## global configuration
+
+```bash
+# view the settings
+jjagent settings | jq .
+
+# apply them globally (you might want to manually merge if you have existing settings!)
+jjagent settings | jq . > ~/.claude/settings.json
 ```
 
 ## usage
@@ -28,29 +63,22 @@ cargo install --path .
 ### kick off a session
 
 ```bash
-# start a new claude session with jj tracking
-jjagent claude start -m "working on authentication feature"
+# with jjagent globally configured in ~/claude/settings.json, it'll work with any claude session
+claude
 
-# or use the modular approach
-claude --session-id "$(jjagent claude issue -m 'working on feature x')" --settings "$(jjagent settings)"
+# you can also use it without global setup like this
+claude --settings "$(jjagent settings)"
+
+# to provide a description for your session, you can use claude's session id
+claude --session-id $(jjagent claude issue -m "working on feature x")
+
+# alternatively, kick off claude from jjagent
+jjagent claude start -m "working on authentication feature" -- --permission-mode acceptEdits
 
 # resume an existing session
 jjagent claude resume <session-id or jj-ref>
 ```
 
-### global configuration
-
-to use jjagent hooks globally with claude code, add the settings to `~/.claude/settings.json`:
-
-```bash
-jjagent settings | jq .
-```
-
-either review and merge these with your settings, or if you don't have existing settings:
-
-```bash
-jjagent settings | jq . > ~/.claude/settings.json
-```
 
 ### commands
 
