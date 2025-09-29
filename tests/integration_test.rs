@@ -470,8 +470,9 @@ fn test_never_stay_on_claude_change() -> Result<()> {
 
         // Never on the Claude change directly
         let claude_change = repo.find_claude_change()?;
-        if i > 1 && claude_change.is_some() {
-            let claude_id = claude_change.unwrap();
+        if i > 1
+            && let Some(claude_id) = claude_change
+        {
             assert_ne!(current, claude_id, "Should never be left on Claude change");
         }
 
