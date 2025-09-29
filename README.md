@@ -7,6 +7,18 @@ automatically squashes claude's changes into a claude session specific change th
 
 ## installation
 
+homebrew:
+
+```bash
+brew install schpet/tap/jjagent
+```
+
+or grab a release:
+
+https://github.com/schpet/jjagent/releases/latest
+
+or, clone the repo locally
+
 ```bash
 cargo install --path .
 ```
