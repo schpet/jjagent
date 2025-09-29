@@ -26,6 +26,19 @@ impl TestRepo {
             );
         }
 
+        // Disable watchman for tests
+        let config_output = Command::new("jj")
+            .current_dir(dir.path())
+            .args(["config", "set", "--repo", "core.fsmonitor", "none"])
+            .output()?;
+
+        if !config_output.status.success() {
+            anyhow::bail!(
+                "Failed to disable watchman: {}",
+                String::from_utf8_lossy(&config_output.stderr)
+            );
+        }
+
         // Create initial commit
         fs::write(dir.path().join("initial.txt"), "initial content")?;
 
