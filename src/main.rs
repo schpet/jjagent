@@ -330,10 +330,11 @@ fn wait_for_other_session(other_session_id: &str, current_session_id: &str) -> R
 
         let current_desc = get_current_description()?;
         if let Some(temp_change_session_id) = extract_session_id_from_temp_change(&current_desc)
-            && temp_change_session_id == other_session_id {
-                thread::sleep(poll_interval);
-                continue;
-            }
+            && temp_change_session_id == other_session_id
+        {
+            thread::sleep(poll_interval);
+            continue;
+        }
 
         eprintln!("✓ Other session complete, proceeding...");
         break;
@@ -357,13 +358,14 @@ fn handle_pre_tool_use(input: HookInput) -> Result<()> {
     // Check if this is a file-modifying tool
     let file_modifying_tools = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
     if let Some(ref tool_name) = input.tool_name
-        && !file_modifying_tools.contains(&tool_name.as_str()) {
-            eprintln!(
-                "Skipping temporary change for non-file-modifying tool: {}",
-                tool_name
-            );
-            return Ok(());
-        }
+        && !file_modifying_tools.contains(&tool_name.as_str())
+    {
+        eprintln!(
+            "Skipping temporary change for non-file-modifying tool: {}",
+            tool_name
+        );
+        return Ok(());
+    }
 
     // Invariant: The hook should handle any tool type (Edit, Write, MultiEdit, Bash, etc.)
     // This is a critical design principle that allows for universal change attribution
@@ -432,13 +434,14 @@ fn handle_post_tool_use(input: HookInput) -> Result<()> {
     // Check if this is a file-modifying tool
     let file_modifying_tools = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
     if let Some(ref tool_name) = input.tool_name
-        && !file_modifying_tools.contains(&tool_name.as_str()) {
-            eprintln!(
-                "Skipping post-processing for non-file-modifying tool: {}",
-                tool_name
-            );
-            return Ok(());
-        }
+        && !file_modifying_tools.contains(&tool_name.as_str())
+    {
+        eprintln!(
+            "Skipping post-processing for non-file-modifying tool: {}",
+            tool_name
+        );
+        return Ok(());
+    }
 
     // Invariant: PostToolUse must handle all tool types for proper change attribution
     // Whether changes come from Edit, Write, MultiEdit, or Bash commands, the detection
@@ -693,20 +696,21 @@ fn verify_change_safe_for_session(
     context: &str,
 ) -> Result<()> {
     if let Some(found_session_id) = get_session_id_from_change(change_id)?
-        && found_session_id != current_session_id {
-            anyhow::bail!(
-                "Error: Concurrent Claude session detected\n\n\
+        && found_session_id != current_session_id
+    {
+        anyhow::bail!(
+            "Error: Concurrent Claude session detected\n\n\
                  The {} is a Claude change from another session.\n\
                  Another Claude Code session is likely active in this repo.\n\n\
                  Current change: {}\n\
                  This session:   {}\n\
                  Other session:  {}",
-                context,
-                &change_id[..12.min(change_id.len())],
-                &current_session_id[..8.min(current_session_id.len())],
-                &found_session_id[..8.min(found_session_id.len())],
-            );
-        }
+            context,
+            &change_id[..12.min(change_id.len())],
+            &current_session_id[..8.min(current_session_id.len())],
+            &found_session_id[..8.min(found_session_id.len())],
+        );
+    }
 
     if is_temp_change(change_id)? {
         anyhow::bail!(
