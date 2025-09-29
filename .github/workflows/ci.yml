@@ -21,6 +21,12 @@ jobs:
       with:
         components: rustfmt, clippy
 
+    - name: Install jj
+      run: |
+        curl -L https://github.com/martinvonz/jj/releases/latest/download/jj-v0.23.0-x86_64-unknown-linux-musl.tar.gz | tar xz
+        sudo mv jj /usr/local/bin/
+        jj --version
+
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:

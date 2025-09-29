@@ -49,3 +49,4 @@ claude -r "$SESSION_ID" -p "This is the third prompt"
 - Focus on WHAT users need and WHY
 - Avoid HOW to implement (no tech stack, APIs, code structure)
 - Written for business stakeholders, not developers
+- clippy command is 'cargo clippy --all-targets --all-features -- -D warnings'

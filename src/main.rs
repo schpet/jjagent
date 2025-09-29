@@ -23,6 +23,8 @@ enum Commands {
     /// Claude Code integration
     #[command(subcommand)]
     Claude(ClaudeCommands),
+    /// Print Claude Code settings JSON
+    Settings,
 }
 
 #[derive(Subcommand)]
@@ -46,6 +48,12 @@ enum ClaudeCommands {
         /// Additional arguments to pass to claude command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         claude_args: Vec<String>,
+    },
+    /// Issue a new session ID and create the change
+    Issue {
+        /// Description for the change (required)
+        #[arg(short = 'm', long = "message", value_name = "MESSAGE")]
+        message: String,
     },
     /// Print Claude Code configuration (for global setup)
     Config,
@@ -108,6 +116,10 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
+        Commands::Settings => {
+            let settings = jjagent::format_claude_settings()?;
+            println!("{}", settings);
+        }
         Commands::Claude(claude_cmd) => {
             // Check if we're in a jj repository
             if !is_jj_repo() {
@@ -121,6 +133,51 @@ fn main() -> Result<()> {
                 ClaudeCommands::Config => {
                     let config = jjagent::format_claude_settings()?;
                     println!("{}", config);
+                }
+                ClaudeCommands::Issue { message } => {
+                    let session_id = Uuid::new_v4().to_string();
+                    let original_working_copy_id = get_current_change_id()?;
+
+                    let trimmed = message.trim();
+                    let separator = if trimmed
+                        .lines()
+                        .last()
+                        .and_then(|line| {
+                            let line = line.trim();
+                            if line.is_empty() {
+                                return None;
+                            }
+                            line.split_once(':').map(|(key, _)| !key.contains(' '))
+                        })
+                        .unwrap_or(false)
+                    {
+                        "\n"
+                    } else {
+                        "\n\n"
+                    };
+
+                    let description =
+                        format!("{}{separator}Claude-session-id: {}", trimmed, session_id);
+
+                    let mut child = Command::new("jj")
+                        .args(["new", "-m", &description])
+                        .spawn()?;
+                    child.wait()?;
+
+                    let new_change_id = get_current_change_id()?;
+
+                    run_jj_command(&[
+                        "rebase",
+                        "-r",
+                        &new_change_id,
+                        "--insert-before",
+                        &original_working_copy_id,
+                    ])?;
+
+                    run_jj_command(&["edit", &original_working_copy_id])?;
+
+                    // Print just the session ID to stdout
+                    println!("{}", session_id);
                 }
                 ClaudeCommands::Resume {
                     ref_or_session_id,
