@@ -23,7 +23,8 @@ jobs:
 
     - name: Install jj
       run: |
-        curl -L https://github.com/martinvonz/jj/releases/latest/download/jj-v0.23.0-x86_64-unknown-linux-musl.tar.gz | tar xz
+        curl -L https://github.com/martinvonz/jj/releases/download/v0.23.0/jj-v0.23.0-x86_64-unknown-linux-musl.tar.gz -o jj.tar.gz
+        tar -xzf jj.tar.gz
         sudo mv jj /usr/local/bin/
         jj --version
 
