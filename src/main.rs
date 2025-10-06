@@ -58,20 +58,29 @@ fn main() -> Result<()> {
 
             match claude_cmd {
                 ClaudeCommands::Settings => unreachable!(),
-                ClaudeCommands::Hooks(hook_cmd) => match hook_cmd {
-                    HookCommands::PreToolUse => {
-                        let input = jjagent::hooks::HookInput::from_stdin()?;
-                        jjagent::hooks::handle_pretool_hook(input)?;
+                ClaudeCommands::Hooks(hook_cmd) => {
+                    let result = match hook_cmd {
+                        HookCommands::PreToolUse => {
+                            let input = jjagent::hooks::HookInput::from_stdin()?;
+                            jjagent::hooks::handle_pretool_hook(input)
+                        }
+                        HookCommands::PostToolUse => {
+                            let input = jjagent::hooks::HookInput::from_stdin()?;
+                            jjagent::hooks::handle_posttool_hook(input)
+                        }
+                        HookCommands::Stop => {
+                            let input = jjagent::hooks::HookInput::from_stdin()?;
+                            jjagent::hooks::handle_stop_hook(input)
+                        }
+                    };
+
+                    // If an error occurred, output JSON to stop Claude and return error
+                    if let Err(e) = result {
+                        let response = jjagent::hooks::HookResponse::stop(e.to_string());
+                        response.output();
+                        return Err(e);
                     }
-                    HookCommands::PostToolUse => {
-                        let input = jjagent::hooks::HookInput::from_stdin()?;
-                        jjagent::hooks::handle_posttool_hook(input)?;
-                    }
-                    HookCommands::Stop => {
-                        let input = jjagent::hooks::HookInput::from_stdin()?;
-                        jjagent::hooks::handle_stop_hook(input)?;
-                    }
-                },
+                }
             }
         }
     }

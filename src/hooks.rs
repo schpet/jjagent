@@ -12,11 +12,37 @@
 //! and Claude's changes are isolated in session-specific changes below.
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::process::Command;
 
 use crate::session::{SessionId, format_precommit_message};
+
+/// Response structure for Claude Code hooks to control execution
+#[derive(Debug, Serialize)]
+pub struct HookResponse {
+    #[serde(rename = "continue")]
+    pub continue_execution: bool,
+    #[serde(rename = "stopReason", skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+}
+
+impl HookResponse {
+    /// Create a response that stops execution with an error message
+    pub fn stop(reason: impl Into<String>) -> Self {
+        Self {
+            continue_execution: false,
+            stop_reason: Some(reason.into()),
+        }
+    }
+
+    /// Output this response as JSON to stdout
+    pub fn output(&self) {
+        if let Ok(json) = serde_json::to_string(self) {
+            println!("{}", json);
+        }
+    }
+}
 
 /// Input structure for Claude Code hooks
 #[derive(Debug, Deserialize)]

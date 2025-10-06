@@ -98,6 +98,36 @@ impl ClaudeSimulator {
         Ok(())
     }
 
+    /// Run a hook and return the output for testing error cases
+    fn run_hook_raw(&self, hook_name: &str, tool_name: &str) -> Result<std::process::Output> {
+        let hook_input = format!(
+            r#"{{"session_id":"{}","tool_name":"{}"}}"#,
+            self.session_id, tool_name
+        );
+
+        let mut child = Command::new(self.jjagent_binary)
+            .current_dir(&self.repo_path)
+            .env_remove("JJAGENT_DISABLE")
+            .env_remove("JJAGENT_LOG")
+            .env_remove("JJAGENT_LOG_FILE")
+            .args(["claude", "hooks", hook_name])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        if let Some(stdin) = child.stdin.take() {
+            use std::io::Write;
+            let mut stdin = stdin;
+            stdin.write_all(hook_input.as_bytes())?;
+            stdin.flush()?;
+        }
+
+        child
+            .wait_with_output()
+            .context("Failed to wait for hook output")
+    }
+
     /// Simulate Claude stopping (Stop hook)
     fn stop(&self) -> Result<()> {
         self.run_hook("Stop", "")
@@ -1215,6 +1245,53 @@ fn test_stop_hook_noop_on_session_mismatch() -> Result<()> {
         "Expected @ to still be on session A's precommit, got: {}",
         output_str
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_hook_error_outputs_json() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "error-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Destroy the jj repo to force an error
+    let jj_dir = repo.path().join(".jj");
+    std::fs::remove_dir_all(&jj_dir)?;
+
+    // Run a hook that will fail (PreToolUse requires jj to work)
+    let output = simulator.run_hook_raw("PreToolUse", "Write")?;
+
+    // The hook should fail
+    assert!(
+        !output.status.success(),
+        "Hook should fail when jj repo is broken"
+    );
+
+    // Check that stdout contains JSON with continue: false and stopReason
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("Hook stdout: {}", stdout);
+
+    // Parse the JSON
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).context("Hook stdout should contain valid JSON")?;
+
+    // Verify the JSON structure
+    assert_eq!(
+        json.get("continue"),
+        Some(&serde_json::Value::Bool(false)),
+        "JSON should have continue: false"
+    );
+
+    assert!(
+        json.get("stopReason").is_some(),
+        "JSON should have a stopReason field"
+    );
+
+    let stop_reason = json.get("stopReason").and_then(|v| v.as_str()).unwrap();
+    assert!(!stop_reason.is_empty(), "stopReason should not be empty");
+
+    eprintln!("Stop reason: {}", stop_reason);
 
     Ok(())
 }
