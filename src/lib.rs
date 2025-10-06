@@ -35,6 +35,7 @@ pub fn format_claude_settings() -> Result<String> {
 
     let pre_tool_use_cmd = format!("{} claude hooks PreToolUse", exe_str);
     let post_tool_use_cmd = format!("{} claude hooks PostToolUse", exe_str);
+    let stop_cmd = format!("{} claude hooks Stop", exe_str);
 
     let config = json!({
         "hooks": {
@@ -51,6 +52,10 @@ pub fn format_claude_settings() -> Result<String> {
                     "type": "command",
                     "command": post_tool_use_cmd
                 }]
+            }],
+            "Stop": [{
+                "type": "command",
+                "command": stop_cmd
             }]
         }
     });

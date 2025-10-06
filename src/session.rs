@@ -35,9 +35,18 @@ impl SessionId {
 }
 
 /// Format a precommit message for the given session
-/// Example: "jjagent: precommit abcd1234"
+/// Example:
+/// ```text
+/// jjagent: precommit abcd1234
+///
+/// Claude-precommit-session-id: abcd1234-5678-90ab-cdef-1234567890ab
+/// ```
 pub fn format_precommit_message(session_id: &SessionId) -> String {
-    format!("jjagent: precommit {}", session_id.short())
+    format!(
+        "jjagent: precommit {}\n\nClaude-precommit-session-id: {}",
+        session_id.short(),
+        session_id.full()
+    )
 }
 
 /// Format a session message with trailer for the given session
@@ -85,10 +94,9 @@ mod tests {
     #[test]
     fn test_message_formats() {
         let sid = SessionId::from_full("abcd1234");
-        assert_eq!(
-            format_precommit_message(&sid),
-            "jjagent: precommit abcd1234"
-        );
+        let precommit_msg = format_precommit_message(&sid);
+        assert!(precommit_msg.contains("jjagent: precommit abcd1234"));
+        assert!(precommit_msg.contains("Claude-precommit-session-id: abcd1234"));
         assert!(format_session_message(&sid).contains("Claude-session-id:"));
         assert!(format_session_part_message(&sid, 2).contains("pt. 2"));
     }

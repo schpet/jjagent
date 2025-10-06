@@ -59,11 +59,63 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
 
 /// Handle PostToolUse hook - squashes changes and manages conflicts
 /// This function integrates all posttool workflow steps:
-/// 1. Finds or creates session change
-/// 2. Attempts to squash precommit into session
-/// 3. If conflicts occur, handles them by creating a new session part
+/// 1. Verifies @ is a precommit for this session (noop if not)
+/// 2. Finds or creates session change
+/// 3. Attempts to squash precommit into session
+/// 4. If conflicts occur, handles them by creating a new session part
 pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
     let session_id = SessionId::from_full(&input.session_id);
+
+    // Verify @ is a precommit for this session
+    // If not (different session or not a precommit), this is a noop
+    if !crate::jj::is_current_commit_precommit_for_session(session_id.full())? {
+        return Ok(());
+    }
+
+    // Check if session change exists anywhere (not just in descendants)
+    let session_change = crate::jj::find_session_change_anywhere(session_id.full())?;
+    if session_change.is_none() {
+        crate::jj::create_session_change(&session_id)?;
+    }
+
+    // Find the session change (either existing or just created)
+    let session_change = crate::jj::find_session_change_anywhere(session_id.full())?
+        .context("Session change should exist")?;
+
+    // Get change IDs
+    // @ is currently at precommit (from pretool hook)
+    let precommit_id = crate::jj::get_change_id("@")?;
+    let uwc_id = crate::jj::get_change_id("@-")?;
+    let session_id_str = session_change.change_id;
+
+    // Attempt to squash precommit into session
+    let new_conflicts =
+        crate::jj::squash_precommit_into_session(&precommit_id, &session_id_str, &uwc_id)?;
+
+    // If conflicts were introduced, handle them
+    if new_conflicts {
+        // Count existing session parts to determine the next part number
+        let existing_parts = crate::jj::count_session_parts(session_id.full())?;
+        let next_part = existing_parts + 1;
+
+        crate::jj::handle_squash_conflicts(&session_id, next_part)?;
+    }
+
+    Ok(())
+}
+
+/// Handle Stop hook - finalizes any precommit and returns to uwc
+/// This hook runs when Claude exits (normally or interrupted).
+/// If @ is a precommit for this session, it finalizes the changes.
+/// Otherwise, it's a noop (user is already on uwc or another session is active).
+pub fn handle_stop_hook(input: HookInput) -> Result<()> {
+    let session_id = SessionId::from_full(&input.session_id);
+
+    // Verify @ is a precommit for this session
+    // If not (different session or not a precommit), this is a noop
+    if !crate::jj::is_current_commit_precommit_for_session(session_id.full())? {
+        return Ok(());
+    }
 
     // Check if session change exists anywhere (not just in descendants)
     let session_change = crate::jj::find_session_change_anywhere(session_id.full())?;

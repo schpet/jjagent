@@ -97,6 +97,11 @@ impl ClaudeSimulator {
 
         Ok(())
     }
+
+    /// Simulate Claude stopping (Stop hook)
+    fn stop(&self) -> Result<()> {
+        self.run_hook("Stop", "")
+    }
 }
 
 impl TestRepo {
@@ -1128,5 +1133,88 @@ fn test_conflict_resolution_maintains_user_changes() -> Result<()> {
     insta::assert_snapshot!("conflict_preserves_user_changes", snapshot);
 
     // The user's version should still be in uwc, Claude's in pt. 2
+    Ok(())
+}
+
+#[test]
+fn test_stop_hook_finalizes_interrupted_session() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "interrupted-session-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Simulate an interrupted session: pretool runs but posttool doesn't
+    simulator.run_hook("PreToolUse", "Write")?;
+
+    // User makes a change while on precommit
+    std::fs::write(repo.path().join("interrupted.txt"), "interrupted work")?;
+
+    // Claude stops (Stop hook runs)
+    simulator.stop()?;
+
+    // Verify the precommit was finalized and user is back on uwc
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("stop_finalizes_interrupted", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_stop_hook_noop_on_uwc() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "noop-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Complete a normal tool call
+    simulator.write_file("normal.txt", "normal work")?;
+
+    // @ should now be on uwc, not precommit
+    // Stop hook should be a noop
+    simulator.stop()?;
+
+    // Verify nothing changed
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("stop_noop_on_uwc", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_stop_hook_noop_on_session_mismatch() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id_a = "session-a-12345678";
+    let session_id_b = "session-b-87654321";
+
+    let simulator_a = ClaudeSimulator::new(repo.path(), session_id_a);
+    let simulator_b = ClaudeSimulator::new(repo.path(), session_id_b);
+
+    // Session A starts a tool call (pretool)
+    simulator_a.run_hook("PreToolUse", "Write")?;
+
+    // Session B tries to stop (should be noop because @ is session A's precommit)
+    simulator_b.stop()?;
+
+    // Verify @ is still on session A's precommit (session B's stop should be noop)
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "log",
+            "-r",
+            "@",
+            "-T",
+            r#"description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-precommit-session-id", t.value(), "")).join("")"#,
+            "--no-graph"
+        ])
+        .output()?;
+
+    let output_str = String::from_utf8_lossy(&log_output.stdout);
+    eprintln!("Current @ state:\n{}", output_str);
+
+    // Check that @ is on a precommit for session A
+    assert!(
+        output_str.contains("session-a-12345678"),
+        "Expected @ to still be on session A's precommit, got: {}",
+        output_str
+    );
+
     Ok(())
 }

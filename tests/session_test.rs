@@ -33,7 +33,8 @@ fn test_format_precommit_message() {
     let session_id = SessionId::from_full("abcd1234-5678-90ab-cdef-1234567890ab");
     let message = format_precommit_message(&session_id);
 
-    assert_eq!(message, "jjagent: precommit abcd1234");
+    let expected = "jjagent: precommit abcd1234\n\nClaude-precommit-session-id: abcd1234-5678-90ab-cdef-1234567890ab";
+    assert_eq!(message, expected);
 }
 
 #[test]

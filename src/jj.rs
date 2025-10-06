@@ -302,6 +302,57 @@ pub fn get_change_id(revset: &str) -> Result<String> {
     get_change_id_in(revset, None)
 }
 
+/// Check if the current commit (@) is a precommit for the given session
+/// Returns true if @ has a Claude-precommit-session-id trailer matching the session_id
+/// If repo_path is provided, runs jj in that directory
+pub fn is_current_commit_precommit_for_session_in(
+    session_id: &str,
+    repo_path: Option<&Path>,
+) -> Result<bool> {
+    let template =
+        r#"trailers.map(|t| if(t.key() == "Claude-precommit-session-id", t.value(), "")).join("")"#;
+
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            "@",
+            "-T",
+            template,
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
+        .output()
+        .context("Failed to execute jj log to check precommit")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj log failed while checking precommit: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let precommit_session_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // If there's no trailer, this is not a precommit
+    if precommit_session_id.is_empty() {
+        return Ok(false);
+    }
+
+    // Check if the session ID matches
+    Ok(precommit_session_id == session_id)
+}
+
+/// Check if the current commit (@) is a precommit for the given session in the current directory
+pub fn is_current_commit_precommit_for_session(session_id: &str) -> Result<bool> {
+    is_current_commit_precommit_for_session_in(session_id, None)
+}
+
 /// Attempt to squash precommit into session change (happy path)
 /// Returns true if new conflicts were introduced, false otherwise
 /// If repo_path is provided, runs jj in that directory

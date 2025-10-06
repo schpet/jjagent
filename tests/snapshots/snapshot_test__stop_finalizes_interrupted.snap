@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session interrup
+
+Claude-session-id: interrupted-session-12345678
+
+Added regular file interrupted.txt:
+        1: interrupted work
+○  base
+
+◆

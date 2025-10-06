@@ -7,8 +7,6 @@ expression: snapshot
 
 Claude-session-id: multipart-test-12345678
 
-Added regular file part2.txt:
-        1: second part
 ○  jjagent: session multipar pt. 2
 
 Claude-session-id: multipart-test-12345678

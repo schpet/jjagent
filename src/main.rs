@@ -34,6 +34,9 @@ enum HookCommands {
     /// Handle PostToolUse hook
     #[command(name = "PostToolUse")]
     PostToolUse,
+    /// Handle Stop hook
+    #[command(name = "Stop")]
+    Stop,
 }
 
 fn main() -> Result<()> {
@@ -63,6 +66,10 @@ fn main() -> Result<()> {
                     HookCommands::PostToolUse => {
                         let input = jjagent::hooks::HookInput::from_stdin()?;
                         jjagent::hooks::handle_posttool_hook(input)?;
+                    }
+                    HookCommands::Stop => {
+                        let input = jjagent::hooks::HookInput::from_stdin()?;
+                        jjagent::hooks::handle_stop_hook(input)?;
                     }
                 },
             }

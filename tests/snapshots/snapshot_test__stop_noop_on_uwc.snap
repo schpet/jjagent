@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session noop-tes
+
+Claude-session-id: noop-test-12345678
+
+Added regular file normal.txt:
+        1: normal work
+○  base
+
+◆
