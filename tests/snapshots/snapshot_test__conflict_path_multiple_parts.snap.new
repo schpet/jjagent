@@ -1,0 +1,25 @@
+---
+source: tests/snapshot_test.rs
+assertion_line: 929
+expression: snapshot
+---
+@  
+Added regular file part1.txt:
+        1: first part
+Added regular file part2.txt:
+        1: second part
+Added regular file part3.txt:
+        1: third part
+○  jjagent: session multipar pt. 3
+
+Claude-session-id: multipart-test-12345678
+
+○  uwc
+
+○  jjagent: session multipar
+
+Claude-session-id: multipart-test-12345678
+
+○  base
+
+◆

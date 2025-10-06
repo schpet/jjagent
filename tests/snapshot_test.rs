@@ -855,7 +855,7 @@ fn test_conflict_path_multiple_parts() -> Result<()> {
     // Simulate pretool hook: create precommit on top of uwc
     let precommit_output = Command::new("jj")
         .current_dir(repo.path())
-        .args(["new", "-m", "jjagent: precommit multipar"])
+        .args(["new", "-m", "jjagent: precommit multipar", "--ignore-working-copy"])
         .output()?;
 
     if !precommit_output.status.success() {
@@ -899,7 +899,12 @@ fn test_conflict_path_multiple_parts() -> Result<()> {
     // Simulate another pretool -> posttool cycle
     let precommit2_output = Command::new("jj")
         .current_dir(repo.path())
-        .args(["new", "-m", "jjagent: precommit multipar"])
+        .args([
+            "new",
+            "-m",
+            "jjagent: precommit multipar",
+            "--ignore-working-copy",
+        ])
         .output()?;
 
     if !precommit2_output.status.success() {

@@ -70,10 +70,10 @@ pub fn find_session_change_in(
 
     // Descendants are ordered from closest to farthest
     for commit in descendants {
-        if let Some(ref commit_session_id) = commit.session_id {
-            if commit_session_id == session_id {
-                return Ok(Some(commit));
-            }
+        if let Some(ref commit_session_id) = commit.session_id
+            && commit_session_id == session_id
+        {
+            return Ok(Some(commit));
         }
     }
 
@@ -101,7 +101,15 @@ pub fn find_session_change_anywhere_in(
     }
 
     let output = cmd
-        .args(["log", "-r", "all()", "-T", template, "--no-graph"])
+        .args([
+            "log",
+            "-r",
+            "all()",
+            "-T",
+            template,
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
         .output()
         .context("Failed to execute jj log")?;
 
@@ -114,10 +122,10 @@ pub fn find_session_change_anywhere_in(
 
     // Find first commit with matching session ID
     for commit in commits {
-        if let Some(ref commit_session_id) = commit.session_id {
-            if commit_session_id == session_id {
-                return Ok(Some(commit));
-            }
+        if let Some(ref commit_session_id) = commit.session_id
+            && commit_session_id == session_id
+        {
+            return Ok(Some(commit));
         }
     }
 
@@ -192,15 +200,7 @@ pub fn create_session_change_in(session_id: &SessionId, repo_path: Option<&Path>
     }
 
     let output = cmd
-        .args([
-            "new",
-            "--insert-before",
-            "@-",
-            "--no-edit",
-            "-m",
-            &message,
-            "--ignore-working-copy",
-        ])
+        .args(["new", "--insert-before", "@-", "--no-edit", "-m", &message])
         .output()
         .context("Failed to execute jj new")?;
 
@@ -327,7 +327,7 @@ pub fn squash_precommit_into_session_in(
         cmd.current_dir(path);
     }
     let output = cmd
-        .args(["edit", uwc_id, "--ignore-working-copy"])
+        .args(["edit", uwc_id])
         .output()
         .context("Failed to execute jj edit")?;
 
@@ -351,7 +351,6 @@ pub fn squash_precommit_into_session_in(
             "--into",
             session_id,
             "--use-destination-message",
-            "--ignore-working-copy",
         ])
         .output()
         .context("Failed to execute jj squash")?;
@@ -398,7 +397,7 @@ pub fn handle_squash_conflicts_in(
             cmd.current_dir(path);
         }
         let output = cmd
-            .args(["undo", "--ignore-working-copy"])
+            .args(["undo"])
             .output()
             .context("Failed to execute jj undo")?;
 
@@ -417,7 +416,7 @@ pub fn handle_squash_conflicts_in(
         cmd.current_dir(path);
     }
     let output = cmd
-        .args(["describe", "-m", &message, "--ignore-working-copy"])
+        .args(["describe", "-m", &message])
         .output()
         .context("Failed to execute jj describe")?;
 
@@ -434,7 +433,7 @@ pub fn handle_squash_conflicts_in(
         cmd.current_dir(path);
     }
     let output = cmd
-        .args(["new", "--ignore-working-copy"])
+        .args(["new"])
         .output()
         .context("Failed to execute jj new")?;
 

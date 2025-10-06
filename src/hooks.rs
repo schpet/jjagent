@@ -66,13 +66,13 @@ pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
     let session_id = SessionId::from_full(&input.session_id);
 
     // Check if session change exists anywhere (not just in descendants)
-    let session_change = crate::jj::find_session_change_anywhere(&session_id.full())?;
+    let session_change = crate::jj::find_session_change_anywhere(session_id.full())?;
     if session_change.is_none() {
         crate::jj::create_session_change(&session_id)?;
     }
 
     // Find the session change (either existing or just created)
-    let session_change = crate::jj::find_session_change_anywhere(&session_id.full())?
+    let session_change = crate::jj::find_session_change_anywhere(session_id.full())?
         .context("Session change should exist")?;
 
     // Get change IDs
@@ -88,7 +88,7 @@ pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
     // If conflicts were introduced, handle them
     if new_conflicts {
         // Count existing session parts to determine the next part number
-        let existing_parts = crate::jj::count_session_parts(&session_id.full())?;
+        let existing_parts = crate::jj::count_session_parts(session_id.full())?;
         let next_part = existing_parts + 1;
 
         crate::jj::handle_squash_conflicts(&session_id, next_part)?;
