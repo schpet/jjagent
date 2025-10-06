@@ -1,0 +1,23 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  
+○  jjagent: session preserve pt. 2
+
+Claude-session-id: preserve-user-12345678
+
+Modified regular file important.txt:
+   1     : user's important data
+        1: claude's changes
+○  uwc
+
+Added regular file important.txt:
+        1: user's important data
+○  jjagent: session preserve
+
+Claude-session-id: preserve-user-12345678
+
+○  base
+
+◆

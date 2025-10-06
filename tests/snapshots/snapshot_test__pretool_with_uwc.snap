@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session uwc-test
+
+Claude-session-id: uwc-test-12345678
+
+Added regular file claude.txt:
+        1: claude's changes
+○  base
+
+◆

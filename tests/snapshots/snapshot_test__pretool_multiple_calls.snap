@@ -1,0 +1,14 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  
+○  jjagent: session multi-te
+
+Claude-session-id: multi-test-87654321
+
+Added regular file file1.txt:
+        1: edited first file
+Added regular file file2.txt:
+        1: second file
+◆

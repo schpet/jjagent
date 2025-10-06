@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  jjagent: precommit position
+
+○  uwc
+
+Added regular file user_file.txt:
+        1: user's work
+○  jjagent: session position
+
+Claude-session-id: position-test-87654321
+
+○  base
+
+◆

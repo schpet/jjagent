@@ -1,0 +1,23 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  
+○  jjagent: session conflict pt. 2
+
+Claude-session-id: conflict-test-12345678
+
+Modified regular file conflict.txt:
+   1     : original content
+        1: claude's changes
+○  uwc
+
+Added regular file conflict.txt:
+        1: original content
+○  jjagent: session conflict
+
+Claude-session-id: conflict-test-12345678
+
+○  base
+
+◆

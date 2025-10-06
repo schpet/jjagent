@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- use jj bookmarks instead of tmpfiles for persisting references to changes
+- better avoidance of merge conflicts
+
 ## [0.1.3] - 2025-09-28
 
 ### Fixed

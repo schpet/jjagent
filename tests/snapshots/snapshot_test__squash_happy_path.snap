@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+Added regular file uwc_file.txt:
+        1: user's work
+○  jjagent: session squash-t
+
+Claude-session-id: squash-test-12345678
+
+Added regular file claude_file.txt:
+        1: claude's work
+○  base
+
+◆

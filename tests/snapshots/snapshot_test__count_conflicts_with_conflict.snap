@@ -1,0 +1,20 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+○  uwc with file
+
+Created conflict in conflict.txt:
+        1: <<<<<<< Conflict 1 of 1
+        2: +++++++ Contents of side #1 (no terminating newline)
+   1    3: conflicting content
+        4: %%%%%%% Changes from base to side #2 (removes terminating newline)
+        5: +original content
+        6: >>>>>>> Conflict 1 of 1 ends
+@  parallel change
+
+Added regular file conflict.txt:
+        1: conflicting content
+○  base
+
+◆

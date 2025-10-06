@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+Added regular file user_work.txt:
+        1: user's code
+○  jjagent: session integrat
+
+Claude-session-id: integration-happy-12345678
+
+Added regular file feature.txt:
+        1: new feature
+○  base
+
+◆

@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+Added regular file user_file.txt:
+        1: user's content
+○  jjagent: session empty-te
+
+Claude-session-id: empty-test-12345678
+
+○  base
+
+◆

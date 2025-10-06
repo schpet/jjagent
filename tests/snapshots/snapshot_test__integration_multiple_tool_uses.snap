@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session integrat
+
+Claude-session-id: integration-multi-12345678
+
+Added regular file file1.txt:
+        1: edited first change
+Added regular file file2.txt:
+        1: second change
+○  base
+
+◆

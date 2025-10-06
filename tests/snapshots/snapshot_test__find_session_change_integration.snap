@@ -1,0 +1,13 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+○  uwc
+
+○  jjagent: session find-me
+
+Claude-session-id: find-me-12345678
+
+@  base
+
+◆

@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  jjagent: session other-se
+
+Claude-session-id: other-session-87654321
+
+○  another commit
+
+○  jjagent: session multi-de
+
+Claude-session-id: multi-desc-12345678
+
+○  uwc
+
+○  base
+
+◆

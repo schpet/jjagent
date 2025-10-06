@@ -1,0 +1,22 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  
+○  jjagent: session integrat pt. 2
+
+Claude-session-id: integration-conflict-12345678
+
+Modified regular file shared.txt:
+   1    1: userclaude's version
+○  uwc
+
+Added regular file shared.txt:
+        1: user's version
+○  jjagent: session integrat
+
+Claude-session-id: integration-conflict-12345678
+
+○  base
+
+◆

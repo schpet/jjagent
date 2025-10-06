@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  jjagent: precommit create-t
+
+○  uwc
+
+○  jjagent: session create-t
+
+Claude-session-id: create-test-12345678
+
+○  base
+
+◆

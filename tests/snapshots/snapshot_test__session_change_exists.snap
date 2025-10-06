@@ -1,0 +1,13 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session detect-t
+
+Claude-session-id: detect-test-12345678
+
+○  base
+
+◆

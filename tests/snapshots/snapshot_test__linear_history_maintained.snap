@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session linear-t
+
+Claude-session-id: linear-test-12345678
+
+Added regular file file1.txt:
+        1: first
+Added regular file file2.txt:
+        1: second
+Added regular file file3.txt:
+        1: third
+○  base
+
+◆

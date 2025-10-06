@@ -1,0 +1,1122 @@
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use tempfile::TempDir;
+
+struct TestRepo {
+    dir: TempDir,
+}
+
+/// Simulates a Claude Code session for testing
+struct ClaudeSimulator {
+    session_id: String,
+    jjagent_binary: &'static str,
+    repo_path: PathBuf,
+}
+
+impl ClaudeSimulator {
+    fn new(repo_path: &Path, session_id: &str) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            jjagent_binary: env!("CARGO_BIN_EXE_jjagent"),
+            repo_path: repo_path.to_path_buf(),
+        }
+    }
+
+    /// Simulate a Write tool call with PreToolUse and PostToolUse hooks
+    fn write_file(&self, path: &str, content: &str) -> Result<()> {
+        self.tool_call("Write", || {
+            fs::write(self.repo_path.join(path), content)?;
+            Ok(())
+        })
+    }
+
+    /// Simulate an Edit tool call with PreToolUse and PostToolUse hooks
+    fn edit_file(&self, path: &str, content: &str) -> Result<()> {
+        self.tool_call("Edit", || {
+            fs::write(self.repo_path.join(path), content)?;
+            Ok(())
+        })
+    }
+
+    /// Simulate any tool call with a custom action
+    fn tool_call<F>(&self, tool_name: &str, action: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        self.run_hook("PreToolUse", tool_name)?;
+        action()?;
+        self.run_hook("PostToolUse", tool_name)?;
+        Ok(())
+    }
+
+    fn run_hook(&self, hook_name: &str, tool_name: &str) -> Result<()> {
+        let hook_input = format!(
+            r#"{{"session_id":"{}","tool_name":"{}"}}"#,
+            self.session_id, tool_name
+        );
+
+        let mut child = Command::new(self.jjagent_binary)
+            .current_dir(&self.repo_path)
+            .env_remove("JJAGENT_DISABLE")
+            .env_remove("JJAGENT_LOG")
+            .env_remove("JJAGENT_LOG_FILE")
+            .args(["claude", "hooks", hook_name])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        if let Some(stdin) = child.stdin.take() {
+            use std::io::Write;
+            let mut stdin = stdin;
+            stdin.write_all(hook_input.as_bytes())?;
+            stdin.flush()?;
+            // stdin is dropped here, which closes it
+        }
+
+        let output = child.wait_with_output()?;
+
+        // Debug: Print hook output
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.is_empty() {
+            eprintln!("HOOK {} STDOUT: {}", hook_name, stdout);
+        }
+        if !stderr.is_empty() {
+            eprintln!("HOOK {} STDERR: {}", hook_name, stderr);
+        }
+
+        assert!(
+            output.status.success(),
+            "{} hook failed: {}",
+            hook_name,
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        Ok(())
+    }
+}
+
+impl TestRepo {
+    fn new() -> Result<Self> {
+        let dir = TempDir::new()?;
+
+        // Initialize jj repo
+        let init_output = Command::new("jj")
+            .current_dir(dir.path())
+            .args(["git", "init"])
+            .output()?;
+
+        if !init_output.status.success() {
+            anyhow::bail!(
+                "Failed to init jj repo: {}",
+                String::from_utf8_lossy(&init_output.stderr)
+            );
+        }
+
+        // Disable watchman for tests
+        let config_output = Command::new("jj")
+            .current_dir(dir.path())
+            .args(["config", "set", "--repo", "core.fsmonitor", "none"])
+            .output()?;
+
+        if !config_output.status.success() {
+            anyhow::bail!(
+                "Failed to disable watchman: {}",
+                String::from_utf8_lossy(&config_output.stderr)
+            );
+        }
+
+        Ok(Self { dir })
+    }
+
+    /// Create a repo with a realistic initial state (base + uwc)
+    /// matching the workflow documentation
+    fn new_with_uwc() -> Result<Self> {
+        let repo = Self::new()?;
+
+        // Rename initial commit to "base"
+        let desc_output = Command::new("jj")
+            .current_dir(repo.path())
+            .args(["describe", "-m", "base"])
+            .output()?;
+
+        if !desc_output.status.success() {
+            anyhow::bail!(
+                "Failed to describe base: {}",
+                String::from_utf8_lossy(&desc_output.stderr)
+            );
+        }
+
+        // Create uwc on top
+        let new_output = Command::new("jj")
+            .current_dir(repo.path())
+            .args(["new", "-m", "uwc"])
+            .output()?;
+
+        if !new_output.status.success() {
+            anyhow::bail!(
+                "Failed to create uwc: {}",
+                String::from_utf8_lossy(&new_output.stderr)
+            );
+        }
+
+        Ok(repo)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        self.dir.path()
+    }
+
+    /// Get a deterministic snapshot of the repo state (log + all changes)
+    fn snapshot(&self) -> Result<String> {
+        let template =
+            r#"if(current_working_copy, "@", if(root, "◆", "○")) ++ "  " ++ description ++ "\n""#;
+
+        let output = Command::new("jj")
+            .current_dir(self.path())
+            .args(["log", "--no-graph", "-T", template, "-p"])
+            .output()
+            .context("Failed to run jj log")?;
+
+        if !output.status.success() {
+            anyhow::bail!("jj log failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+}
+
+#[test]
+fn test_pretool_hook_creates_precommit() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = "test-session-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Simulate a tool call (Write in this case)
+    simulator.write_file("test.txt", "hello world")?;
+
+    // Verify the snapshot
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("pretool_creates_precommit", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_pretool_hook_multiple_calls() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id = "multi-test-87654321";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Simulate multiple tool calls
+    simulator.write_file("file1.txt", "first file")?;
+    simulator.write_file("file2.txt", "second file")?;
+    simulator.edit_file("file1.txt", "edited first file")?;
+
+    // Verify the snapshot
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("pretool_multiple_calls", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_pretool_hook_with_uwc() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "uwc-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Simulate a tool call - should create precommit on top of uwc
+    simulator.write_file("claude.txt", "claude's changes")?;
+
+    // Verify the snapshot shows: @ precommit, uwc, base, root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("pretool_with_uwc", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_session_change_detection_finds_existing() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "detect-test-12345678";
+
+    // Manually create a session change with trailer
+    let session_message = format!(
+        "jjagent: session detect-t\n\nClaude-session-id: {}",
+        session_id
+    );
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "new",
+            "--insert-before",
+            "@",
+            "--no-edit",
+            "-m",
+            &session_message,
+        ])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create session change: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    // Verify the snapshot shows the session change
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("session_change_exists", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_session_change_detection_multiple_descendants() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "multi-desc-12345678";
+
+    // Create base commit
+    let desc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit base: {}",
+            String::from_utf8_lossy(&desc_output.stderr)
+        );
+    }
+
+    // Create first descendant with session ID
+    let session_message = format!(
+        "jjagent: session multi-de\n\nClaude-session-id: {}",
+        session_id
+    );
+    let new1_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", &session_message])
+        .output()?;
+
+    if !new1_output.status.success() {
+        anyhow::bail!(
+            "Failed to create first descendant: {}",
+            String::from_utf8_lossy(&new1_output.stderr)
+        );
+    }
+
+    // Create second descendant without session ID
+    let new2_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "another commit"])
+        .output()?;
+
+    if !new2_output.status.success() {
+        anyhow::bail!(
+            "Failed to create second descendant: {}",
+            String::from_utf8_lossy(&new2_output.stderr)
+        );
+    }
+
+    // Create third descendant with different session ID
+    let other_message = "jjagent: session other-se\n\nClaude-session-id: other-session-87654321";
+    let new3_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", other_message])
+        .output()?;
+
+    if !new3_output.status.success() {
+        anyhow::bail!(
+            "Failed to create third descendant: {}",
+            String::from_utf8_lossy(&new3_output.stderr)
+        );
+    }
+
+    // Verify the snapshot shows all descendants
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("session_change_multiple_descendants", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_find_session_change_integration() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "find-me-12345678";
+
+    // Create session change with trailer
+    let msg = format!(
+        "jjagent: session find-me\n\nClaude-session-id: {}",
+        session_id
+    );
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "--insert-before", "@", "--no-edit", "-m", &msg])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create session change: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    // Move to base commit - session change should be in descendants
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@--"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit base: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Use find_session_change from base - should find the session
+    let result = jjagent::jj::find_session_change_in(session_id, Some(repo.path()))?;
+    assert!(
+        result.is_some(),
+        "Should find session change in descendants"
+    );
+    let found = result.unwrap();
+    assert_eq!(
+        found.session_id,
+        Some(session_id.to_string()),
+        "Found commit should have correct session ID"
+    );
+
+    // Verify the final repo state
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("find_session_change_integration", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_create_session_change() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("create-test-12345678");
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit create-t"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Now @ is at precommit, create session change
+    // Should insert between uwc and base
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Verify the structure: @ precommit -> uwc -> session -> base -> root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_session_change", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_create_session_change_verifies_position() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("position-test-87654321");
+
+    // Add a file to uwc to make it non-empty
+    std::fs::write(repo.path().join("user_file.txt"), "user's work")?;
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit position"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Now @ is at precommit, create session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Verify that:
+    // 1. Session change is between uwc and base
+    // 2. User's file is in uwc (not in session)
+    // 3. Structure is correct
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_session_change_with_user_content", snapshot);
+
+    // Additionally, verify we can find the session change from base
+    // Structure is: @ precommit -> uwc -> session -> base -> root
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@---"]) // Go to base (3 steps back from precommit)
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit base: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // From base, descendants should include session, uwc, and precommit
+    let found = jjagent::jj::find_session_change_in("position-test-87654321", Some(repo.path()))?;
+    assert!(
+        found.is_some(),
+        "Should find session change in descendants from base"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_count_conflicts_no_conflicts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // Get the change ID of uwc
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["log", "-r", "@", "-T", "change_id.short()", "--no-graph"])
+        .output()?;
+
+    if !log_output.status.success() {
+        anyhow::bail!(
+            "Failed to get change ID: {}",
+            String::from_utf8_lossy(&log_output.stderr)
+        );
+    }
+
+    let change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Count conflicts - should be 0
+    let count = jjagent::jj::count_conflicts_in(&change_id, Some(repo.path()))?;
+    assert_eq!(count, 0, "Should have no conflicts");
+
+    Ok(())
+}
+
+#[test]
+fn test_count_conflicts_with_conflict() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // Create a file in uwc
+    std::fs::write(repo.path().join("conflict.txt"), "original content")?;
+
+    // Commit uwc
+    let desc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "uwc with file"])
+        .output()?;
+
+    if !desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe uwc: {}",
+            String::from_utf8_lossy(&desc_output.stderr)
+        );
+    }
+
+    // Get the change ID of uwc before creating parallel change
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["log", "-r", "@", "-T", "change_id.short()", "--no-graph"])
+        .output()?;
+
+    if !log_output.status.success() {
+        anyhow::bail!(
+            "Failed to get uwc change ID: {}",
+            String::from_utf8_lossy(&log_output.stderr)
+        );
+    }
+
+    let uwc_change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Go back to base and create a parallel change
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit base: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Create parallel change with conflicting content
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "parallel change"])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create parallel change: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("conflict.txt"), "conflicting content")?;
+
+    // Rebase uwc onto parallel change to create conflict
+    let rebase_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["rebase", "-s", &uwc_change_id, "-d", "@"])
+        .output()?;
+
+    if !rebase_output.status.success() {
+        anyhow::bail!(
+            "Failed to rebase: {}",
+            String::from_utf8_lossy(&rebase_output.stderr)
+        );
+    }
+
+    // Count conflicts on uwc - should be at least 1
+    let count = jjagent::jj::count_conflicts_in(&uwc_change_id, Some(repo.path()))?;
+    assert!(count >= 1, "Should have at least one conflicted change");
+
+    // Verify the snapshot shows the conflict
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("count_conflicts_with_conflict", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_count_conflicts_after_change() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // Create a file in base
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit base: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("base.txt"), "base content")?;
+
+    let base_desc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "base with file"])
+        .output()?;
+
+    if !base_desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe base: {}",
+            String::from_utf8_lossy(&base_desc_output.stderr)
+        );
+    }
+
+    // Get base change ID
+    let base_log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["log", "-r", "@", "-T", "change_id.short()", "--no-graph"])
+        .output()?;
+
+    if !base_log_output.status.success() {
+        anyhow::bail!(
+            "Failed to get base change ID: {}",
+            String::from_utf8_lossy(&base_log_output.stderr)
+        );
+    }
+
+    let base_change_id = String::from_utf8_lossy(&base_log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Go to uwc and modify the file differently
+    let edit_uwc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@+"])
+        .output()?;
+
+    if !edit_uwc_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit uwc: {}",
+            String::from_utf8_lossy(&edit_uwc_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("base.txt"), "uwc modified content")?;
+
+    // Create another change on top of uwc
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "change on top"])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create change on top: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    // Count conflicts from base - should include descendants if any
+    let count = jjagent::jj::count_conflicts_in(&base_change_id, Some(repo.path()))?;
+    assert_eq!(count, 0, "Should have no conflicts in this scenario");
+
+    Ok(())
+}
+
+#[test]
+fn test_squash_happy_path() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("squash-test-12345678");
+
+    // Add some content to uwc
+    std::fs::write(repo.path().join("uwc_file.txt"), "user's work")?;
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit squash-t"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Add Claude's changes to precommit
+    std::fs::write(repo.path().join("claude_file.txt"), "claude's work")?;
+
+    // Get precommit change ID (current @)
+    let precommit_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Create session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Get uwc and session change IDs
+    let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
+    let session_change =
+        jjagent::jj::find_session_change_anywhere_in("squash-test-12345678", Some(repo.path()))?
+            .expect("Session change should exist");
+    let session_id_str = session_change.change_id;
+
+    // Attempt squash (should succeed without introducing conflicts)
+    let new_conflicts = jjagent::jj::squash_precommit_into_session_in(
+        &precommit_id,
+        &session_id_str,
+        &uwc_id,
+        Some(repo.path()),
+    )?;
+
+    assert!(!new_conflicts, "Should not introduce new conflicts");
+
+    // Verify final state: @ uwc -> session -> base -> root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("squash_happy_path", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_squash_with_changes() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("squash-changes-12345678");
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit squash-c"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Add multiple changes to precommit
+    std::fs::write(repo.path().join("file1.txt"), "first change")?;
+    std::fs::write(repo.path().join("file2.txt"), "second change")?;
+    std::fs::create_dir_all(repo.path().join("subdir"))?;
+    std::fs::write(repo.path().join("subdir/file3.txt"), "third change")?;
+
+    // Get precommit change ID
+    let precommit_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Create session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Get uwc and session change IDs
+    let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
+    let session_change =
+        jjagent::jj::find_session_change_anywhere_in("squash-changes-12345678", Some(repo.path()))?
+            .expect("Session change should exist");
+    let session_id_str = session_change.change_id;
+
+    // Attempt squash
+    let new_conflicts = jjagent::jj::squash_precommit_into_session_in(
+        &precommit_id,
+        &session_id_str,
+        &uwc_id,
+        Some(repo.path()),
+    )?;
+
+    assert!(!new_conflicts, "Should not introduce new conflicts");
+
+    // Verify that changes were squashed into session
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("squash_with_changes", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_handle_squash_conflicts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("conflict-test-12345678");
+
+    // Create a file in uwc
+    std::fs::write(repo.path().join("conflict.txt"), "original content")?;
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit conflict-"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Modify the same file in precommit to create potential conflict
+    std::fs::write(repo.path().join("conflict.txt"), "claude's changes")?;
+
+    // Get precommit change ID
+    let precommit_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Create session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Get uwc and session change IDs
+    let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
+    let session_change =
+        jjagent::jj::find_session_change_anywhere_in("conflict-test-12345678", Some(repo.path()))?
+            .expect("Session change should exist");
+    let session_id_str = session_change.change_id;
+
+    // Attempt squash (should introduce conflicts due to same file modification)
+    let _new_conflicts = jjagent::jj::squash_precommit_into_session_in(
+        &precommit_id,
+        &session_id_str,
+        &uwc_id,
+        Some(repo.path()),
+    )?;
+
+    // For this test, we'll handle conflicts regardless of whether they were introduced
+    // (simulating the conflict path from the workflow)
+    jjagent::jj::handle_squash_conflicts_in(&session_id, 2, Some(repo.path()))?;
+
+    // Verify final state: @ new wc -> pt. 2 -> uwc -> session -> base -> root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("handle_squash_conflicts", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_conflict_path_multiple_parts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("multipart-test-12345678");
+
+    // Simulate pretool hook: create precommit on top of uwc
+    let precommit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit multipar"])
+        .output()?;
+
+    if !precommit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create precommit: {}",
+            String::from_utf8_lossy(&precommit_output.stderr)
+        );
+    }
+
+    // Add changes to precommit
+    std::fs::write(repo.path().join("part1.txt"), "first part")?;
+
+    // Get precommit change ID
+    let precommit_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Create session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Get uwc and session change IDs
+    let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
+    let session_change =
+        jjagent::jj::find_session_change_anywhere_in("multipart-test-12345678", Some(repo.path()))?
+            .expect("Session change should exist");
+    let session_id_str = session_change.change_id;
+
+    // Attempt squash
+    jjagent::jj::squash_precommit_into_session_in(
+        &precommit_id,
+        &session_id_str,
+        &uwc_id,
+        Some(repo.path()),
+    )?;
+
+    // Simulate conflict path for part 2
+    jjagent::jj::handle_squash_conflicts_in(&session_id, 2, Some(repo.path()))?;
+
+    // Verify we can create part 3 as well
+    // Add more changes
+    std::fs::write(repo.path().join("part2.txt"), "second part")?;
+
+    // Simulate another pretool -> posttool cycle
+    let precommit2_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "jjagent: precommit multipar"])
+        .output()?;
+
+    if !precommit2_output.status.success() {
+        anyhow::bail!(
+            "Failed to create second precommit: {}",
+            String::from_utf8_lossy(&precommit2_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("part3.txt"), "third part")?;
+
+    // Handle conflicts again for part 3
+    jjagent::jj::handle_squash_conflicts_in(&session_id, 3, Some(repo.path()))?;
+
+    // Verify final state shows multiple parts
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("conflict_path_multiple_parts", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_integration_full_workflow_happy_path() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "integration-happy-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // User has some existing work in uwc
+    std::fs::write(repo.path().join("user_work.txt"), "user's code")?;
+
+    // Simulate Claude making changes via Write tool
+    simulator.write_file("feature.txt", "new feature")?;
+
+    // Verify final state: @ uwc -> session (with feature.txt) -> base -> root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("integration_full_workflow_happy_path", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_integration_multiple_tool_uses() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "integration-multi-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Simulate multiple tool calls in the same session
+    simulator.write_file("file1.txt", "first change")?;
+    simulator.write_file("file2.txt", "second change")?;
+    simulator.edit_file("file1.txt", "edited first change")?;
+
+    // Verify final state: all changes squashed into session
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("integration_multiple_tool_uses", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_integration_conflict_path() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "integration-conflict-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // User has a file in uwc
+    std::fs::write(repo.path().join("shared.txt"), "user's version")?;
+
+    // Simulate Claude modifying the same file (will cause conflict on squash)
+    // First tool call creates precommit, modifies file, then posttool tries to squash
+    simulator.write_file("shared.txt", "claude's version")?;
+
+    // The posttool hook should have detected conflict and created pt. 2
+    // Verify final state: @ new wc -> pt. 2 -> uwc -> session -> base -> root
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("integration_conflict_path", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_integration_multiple_conflicts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "integration-multiconf-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // User has a file
+    std::fs::write(repo.path().join("conflict_file.txt"), "original")?;
+
+    // First tool call - creates conflict, becomes pt. 2
+    simulator.write_file("conflict_file.txt", "change 1")?;
+
+    // Add more user work to the new working copy
+    std::fs::write(
+        repo.path().join("conflict_file.txt"),
+        "user change after pt 2",
+    )?;
+
+    // Second tool call - creates another conflict, becomes pt. 3
+    simulator.write_file("conflict_file.txt", "change 2")?;
+
+    // Verify final state shows pt. 2 and pt. 3
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("integration_multiple_conflicts", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_empty_changes() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "empty-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // User has some work
+    std::fs::write(repo.path().join("user_file.txt"), "user's content")?;
+
+    // Simulate a tool call that doesn't actually modify any files
+    // (pretool creates precommit, but no changes are made before posttool)
+    simulator.tool_call("Read", || Ok(()))?;
+
+    // Verify the workflow handles empty precommit correctly
+    // Should still create session change and squash (even though empty)
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("empty_changes", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_multiple_concurrent_sessions() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // Session 1 makes changes
+    let session1_id = "session1-12345678";
+    let simulator1 = ClaudeSimulator::new(repo.path(), session1_id);
+    simulator1.write_file("session1_file.txt", "session 1 work")?;
+
+    // Session 2 makes different changes
+    let session2_id = "session2-87654321";
+    let simulator2 = ClaudeSimulator::new(repo.path(), session2_id);
+    simulator2.write_file("session2_file.txt", "session 2 work")?;
+
+    // Session 1 makes more changes
+    simulator1.write_file("session1_more.txt", "more session 1 work")?;
+
+    // Verify both sessions have their own session changes
+    // Should show: @ uwc -> session2 pt.2 OR session1 pt.2 -> ... -> session2 -> session1 -> base
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("multiple_concurrent_sessions", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_linear_history_maintained() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "linear-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Make several changes
+    simulator.write_file("file1.txt", "first")?;
+    simulator.write_file("file2.txt", "second")?;
+    simulator.write_file("file3.txt", "third")?;
+
+    // Verify history is linear (no branches)
+    // Use jj log to check for any branches
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["log", "-r", "all()"])
+        .output()?;
+
+    if !log_output.status.success() {
+        anyhow::bail!(
+            "jj log failed: {}",
+            String::from_utf8_lossy(&log_output.stderr)
+        );
+    }
+
+    let log_str = String::from_utf8_lossy(&log_output.stdout);
+    // Check that there are no branch symbols (│ or branches indicated by multiple commits at same level)
+    // In linear history, each commit should have exactly one parent (except root)
+
+    // Verify via snapshot
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("linear_history_maintained", snapshot);
+
+    // Additional verification: count the number of commits
+    let all_commits = log_str
+        .lines()
+        .filter(|line| line.starts_with("◆") || line.starts_with("○") || line.starts_with("@"))
+        .count();
+
+    // We should have: @ (current), session changes, uwc, base, root
+    assert!(
+        all_commits >= 4,
+        "Should have at least 4 commits in linear history"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_conflict_resolution_maintains_user_changes() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "preserve-user-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // User creates a file
+    std::fs::write(repo.path().join("important.txt"), "user's important data")?;
+
+    // Claude modifies the same file (creates conflict)
+    simulator.write_file("important.txt", "claude's changes")?;
+
+    // Verify user's version is preserved in uwc
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("conflict_preserves_user_changes", snapshot);
+
+    // The user's version should still be in uwc, Claude's in pt. 2
+    Ok(())
+}

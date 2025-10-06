@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session squash-c
+
+Claude-session-id: squash-changes-12345678
+
+Added regular file file1.txt:
+        1: first change
+Added regular file file2.txt:
+        1: second change
+Added regular file subdir/file3.txt:
+        1: third change
+○  base
+
+◆
