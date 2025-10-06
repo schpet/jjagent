@@ -54,8 +54,10 @@ pub fn format_claude_settings() -> Result<String> {
                 }]
             }],
             "Stop": [{
-                "type": "command",
-                "command": stop_cmd
+                "hooks": [{
+                    "type": "command",
+                    "command": stop_cmd
+                }]
             }]
         }
     });

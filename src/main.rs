@@ -59,6 +59,13 @@ fn main() -> Result<()> {
             match claude_cmd {
                 ClaudeCommands::Settings => unreachable!(),
                 ClaudeCommands::Hooks(hook_cmd) => {
+                    let hook_name = match hook_cmd {
+                        HookCommands::PreToolUse => "PreToolUse",
+                        HookCommands::PostToolUse => "PostToolUse",
+                        HookCommands::Stop => "Stop",
+                    };
+                    eprintln!("jjagent: {} hook called", hook_name);
+
                     let result = match hook_cmd {
                         HookCommands::PreToolUse => {
                             let input = jjagent::hooks::HookInput::from_stdin()?;
@@ -74,11 +81,17 @@ fn main() -> Result<()> {
                         }
                     };
 
-                    // If an error occurred, output JSON to stop Claude and return error
-                    if let Err(e) = result {
-                        let response = jjagent::hooks::HookResponse::stop(e.to_string());
-                        response.output();
-                        return Err(e);
+                    // Output JSON response based on result
+                    match result {
+                        Ok(_) => {
+                            let response = jjagent::hooks::HookResponse::continue_execution();
+                            response.output();
+                        }
+                        Err(e) => {
+                            let response = jjagent::hooks::HookResponse::stop(e.to_string());
+                            response.output();
+                            return Err(e);
+                        }
                     }
                 }
             }

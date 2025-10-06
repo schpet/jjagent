@@ -28,6 +28,14 @@ pub struct HookResponse {
 }
 
 impl HookResponse {
+    /// Create a response that allows execution to continue
+    pub fn continue_execution() -> Self {
+        Self {
+            continue_execution: true,
+            stop_reason: None,
+        }
+    }
+
     /// Create a response that stops execution with an error message
     pub fn stop(reason: impl Into<String>) -> Self {
         Self {
@@ -48,7 +56,8 @@ impl HookResponse {
 #[derive(Debug, Deserialize)]
 pub struct HookInput {
     pub session_id: String,
-    pub tool_name: String,
+    #[serde(default)]
+    pub tool_name: Option<String>,
 }
 
 impl HookInput {
