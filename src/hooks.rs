@@ -72,8 +72,11 @@ impl HookInput {
     }
 }
 
-/// Handle PreToolUse hook - creates a new precommit change
+/// Handle PreToolUse hook - acquires lock and creates a new precommit change
 pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
+    // Acquire lock first - this will be held until PostToolUse/Stop
+    crate::lock::acquire_lock(&input.session_id).context("Failed to acquire working copy lock")?;
+
     let session_id = SessionId::from_full(&input.session_id);
     let commit_message = format_precommit_message(&session_id);
 
@@ -83,12 +86,15 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
         .context("Failed to execute jj new command")?;
 
     if !output.status.success() {
+        // Release lock on error
+        let _ = crate::lock::release_lock(&input.session_id);
         anyhow::bail!(
             "jj new command failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
 
+    // Lock remains held until PostToolUse or Stop
     Ok(())
 }
 
@@ -136,17 +142,39 @@ fn finalize_precommit(session_id: SessionId) -> Result<()> {
     Ok(())
 }
 
-/// Handle PostToolUse hook - squashes changes and manages conflicts
+/// Handle PostToolUse hook - squashes changes and manages conflicts, then releases lock
 pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
     let session_id = SessionId::from_full(&input.session_id);
-    finalize_precommit(session_id)
+
+    // Do the actual work
+    let result = finalize_precommit(session_id);
+
+    // Always release lock, even on error
+    match crate::lock::release_lock(&input.session_id) {
+        Ok(()) => result,
+        Err(e) => {
+            eprintln!("jjagent: Warning - failed to release lock: {}", e);
+            result
+        }
+    }
 }
 
-/// Handle Stop hook - finalizes any precommit and returns to uwc
+/// Handle Stop hook - finalizes any precommit and releases lock
 /// This hook runs when Claude exits (normally or interrupted).
 /// If @ is a precommit for this session, it finalizes the changes.
 /// Otherwise, it's a noop (user is already on uwc or another session is active).
 pub fn handle_stop_hook(input: HookInput) -> Result<()> {
     let session_id = SessionId::from_full(&input.session_id);
-    finalize_precommit(session_id)
+
+    // Do the actual work
+    let result = finalize_precommit(session_id);
+
+    // Always release lock, even on error
+    match crate::lock::release_lock(&input.session_id) {
+        Ok(()) => result,
+        Err(e) => {
+            eprintln!("jjagent: Warning - failed to release lock: {}", e);
+            result
+        }
+    }
 }

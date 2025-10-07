@@ -15,6 +15,7 @@
 //! - [`hooks`]: Claude Code hook handlers (PreToolUse, PostToolUse)
 //! - [`jj`]: Core jj operations (session changes, squashing, conflict detection)
 //! - [`session`]: Session ID management and message formatting
+//! - [`lock`]: Working copy lock for preventing concurrent operations
 //! - [`logger`]: Optional logging for debugging
 
 use anyhow::{Context, Result};
@@ -22,6 +23,7 @@ use serde_json::json;
 
 pub mod hooks;
 pub mod jj;
+pub mod lock;
 pub mod logger;
 pub mod session;
 
