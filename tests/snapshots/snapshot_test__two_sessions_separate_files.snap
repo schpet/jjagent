@@ -1,0 +1,25 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+○  jjagent: session session2
+
+Claude-session-id: session2-separate-87654321
+
+Added regular file session2.txt:
+        1: session 2 content
+○  jjagent: session session1
+
+Claude-session-id: session1-separate-12345678
+
+Added regular file session1.txt:
+        1: session 1 content
+○  user
+
+Added regular file user.txt:
+        1: user's content
+○  base
+
+◆

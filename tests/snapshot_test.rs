@@ -1295,3 +1295,102 @@ fn test_hook_error_outputs_json() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_two_sessions_conflict_same_file() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // User creates a change with user.txt
+    std::fs::write(repo.path().join("user.txt"), "user's content")?;
+    let user_desc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "user"])
+        .output()?;
+
+    if !user_desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe user change: {}",
+            String::from_utf8_lossy(&user_desc_output.stderr)
+        );
+    }
+
+    // Create a new uwc on top
+    let new_uwc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "uwc"])
+        .output()?;
+
+    if !new_uwc_output.status.success() {
+        anyhow::bail!(
+            "Failed to create new uwc: {}",
+            String::from_utf8_lossy(&new_uwc_output.stderr)
+        );
+    }
+
+    // Session 1 edits claude.txt
+    let session1_id = "session1-conflict-12345678";
+    let simulator1 = ClaudeSimulator::new(repo.path(), session1_id);
+    simulator1.write_file("claude.txt", "session 1 version")?;
+
+    // Session 2 edits the same file (claude.txt)
+    let session2_id = "session2-conflict-87654321";
+    let simulator2 = ClaudeSimulator::new(repo.path(), session2_id);
+    simulator2.write_file("claude.txt", "session 2 version")?;
+
+    // Session 1 makes another update to claude.txt
+    simulator1.write_file("claude.txt", "session 1 second version")?;
+
+    // Capture the final state showing the conflict
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("two_sessions_conflict_same_file", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_two_sessions_separate_files() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // User creates a change with user.txt
+    std::fs::write(repo.path().join("user.txt"), "user's content")?;
+    let user_desc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "user"])
+        .output()?;
+
+    if !user_desc_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe user change: {}",
+            String::from_utf8_lossy(&user_desc_output.stderr)
+        );
+    }
+
+    // Create a new uwc on top
+    let new_uwc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "uwc"])
+        .output()?;
+
+    if !new_uwc_output.status.success() {
+        anyhow::bail!(
+            "Failed to create new uwc: {}",
+            String::from_utf8_lossy(&new_uwc_output.stderr)
+        );
+    }
+
+    // Session 1 edits session1.txt
+    let session1_id = "session1-separate-12345678";
+    let simulator1 = ClaudeSimulator::new(repo.path(), session1_id);
+    simulator1.write_file("session1.txt", "session 1 content")?;
+
+    // Session 2 edits session2.txt (different file, no conflict)
+    let session2_id = "session2-separate-87654321";
+    let simulator2 = ClaudeSimulator::new(repo.path(), session2_id);
+    simulator2.write_file("session2.txt", "session 2 content")?;
+
+    // Capture the final state showing no conflict
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("two_sessions_separate_files", snapshot);
+
+    Ok(())
+}
