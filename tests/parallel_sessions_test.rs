@@ -43,7 +43,7 @@ fn run_pretool_hook(repo_path: &std::path::Path, session_id: &str) -> Result<(),
 
     let input = format!(r#"{{"session_id":"{}"}}"#, session_id);
 
-    let output = Command::new(&jjagent_path)
+    let _output = Command::new(&jjagent_path)
         .args(["claude", "hooks", "PreToolUse"])
         .current_dir(repo_path)
         .env("PATH", std::env::var("PATH").unwrap())
