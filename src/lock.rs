@@ -3,15 +3,14 @@
 //! This module implements a file-based locking mechanism to serialize hook operations
 //! that modify the jj working copy. The lock is held from PreToolUse through tool execution
 //! until PostToolUse/Stop, preventing race conditions between parallel Claude sessions.
+//!
+//! Uses file existence as the lock mechanism since each hook runs in a separate process.
 
 use anyhow::{Context, Result};
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const LOCK_FILENAME: &str = "jjagent-wc.lock";
@@ -19,11 +18,6 @@ const LOCK_TIMEOUT_SECS: u64 = 300; // 5 minutes
 const INITIAL_RETRY_MS: u64 = 100;
 const MAX_RETRY_MS: u64 = 5000; // 5 seconds
 const PROGRESS_INTERVAL_SECS: u64 = 10;
-
-// Global storage for lock file handles to keep locks alive between hooks
-lazy_static::lazy_static! {
-    static ref LOCK_HANDLES: Mutex<HashMap<String, File>> = Mutex::new(HashMap::new());
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LockMetadata {
@@ -70,32 +64,23 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
 
     std::fs::create_dir_all(".jj").context("Failed to create .jj directory")?;
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .context("Failed to open lock file")?;
-
     let timeout = Duration::from_secs(LOCK_TIMEOUT_SECS);
     let start = Instant::now();
     let mut retry_delay = Duration::from_millis(INITIAL_RETRY_MS);
     let mut last_progress = Instant::now();
 
     loop {
-        match file.try_lock_exclusive() {
-            Ok(()) => {
+        // Try to atomically create the lock file
+        match OpenOptions::new()
+            .create_new(true) // Fails if file exists (atomic operation)
+            .write(true)
+            .open(&lock_path)
+        {
+            Ok(mut file) => {
                 // Write lock metadata
                 let metadata = LockMetadata::new(session_id.to_string());
-                file.set_len(0)?;
                 file.write_all(serde_json::to_string(&metadata)?.as_bytes())?;
                 file.sync_all()?;
-
-                // Store the file handle globally to keep the lock alive
-                {
-                    let mut handles = LOCK_HANDLES.lock().unwrap();
-                    handles.insert(session_id.to_string(), file);
-                }
 
                 eprintln!(
                     "jjagent: Acquired working copy lock (session {})",
@@ -104,6 +89,20 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
                 return Ok(());
             }
             Err(_) if start.elapsed() < timeout => {
+                // Check if lock is stale and can be stolen
+                if let Some(metadata) = read_lock_holder(&lock_path) {
+                    if metadata.age_seconds() > LOCK_TIMEOUT_SECS {
+                        eprintln!(
+                            "jjagent: Lock is stale ({:.0}s old), attempting to steal it",
+                            metadata.age_seconds()
+                        );
+                        // Try to remove stale lock
+                        if std::fs::remove_file(&lock_path).is_ok() {
+                            continue; // Try to acquire again immediately
+                        }
+                    }
+                }
+
                 if last_progress.elapsed() >= Duration::from_secs(PROGRESS_INTERVAL_SECS) {
                     let holder = read_lock_holder(&lock_path);
                     eprintln!(
@@ -156,22 +155,13 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
 pub fn release_lock(session_id: &str) -> Result<()> {
     let lock_path = get_lock_path();
 
-    // First, remove and drop the file handle to release the lock
-    {
-        let mut handles = LOCK_HANDLES.lock().unwrap();
-        if handles.remove(session_id).is_none() {
-            eprintln!(
-                "jjagent: Warning - no lock handle found for session {}",
-                &session_id[..8.min(session_id.len())]
-            );
-        }
-    }
-    // File handle is dropped here, releasing the OS-level lock
-
     if !lock_path.exists() {
-        anyhow::bail!(
-            "Lock file doesn't exist. PreToolUse may not have run or lock was manually deleted."
+        // Lock already released or never acquired - not an error
+        eprintln!(
+            "jjagent: Lock already released or not held (session {})",
+            &session_id[..8.min(session_id.len())]
         );
+        return Ok(());
     }
 
     // Read and verify ownership
@@ -251,33 +241,25 @@ mod tests {
         let lock_path = get_lock_path();
         assert!(lock_path.exists(), "Lock file should exist after acquire");
 
-        // Verify we have the file handle stored
-        {
-            let handles = LOCK_HANDLES.lock().unwrap();
-            assert!(
-                handles.contains_key(session_id),
-                "Lock handle should be stored"
-            );
-        }
+        // Verify lock metadata is correct
+        let metadata = read_lock_holder(&lock_path).unwrap();
+        assert_eq!(metadata.session_id, session_id);
 
         // Try to acquire the same lock from a different "session" - should fail
+        let other_session_id = "other-session";
         let result = std::thread::spawn(move || {
-            // This should fail immediately since we're using a 0 timeout for testing
-            let file = OpenOptions::new()
-                .create(false)
-                .read(true)
+            // Try to create the lock file (should fail since it already exists)
+            OpenOptions::new()
+                .create_new(true)
                 .write(true)
                 .open(get_lock_path())
-                .ok()?;
-
-            // This should fail since the lock is held by the other session
-            file.try_lock_exclusive().ok()
+                .is_ok()
         })
         .join()
         .unwrap();
 
         assert!(
-            result.is_none(),
+            !result,
             "Should not be able to acquire lock while it's held"
         );
 
@@ -290,14 +272,10 @@ mod tests {
             "Lock file should be deleted after release"
         );
 
-        // Verify the handle is removed
-        {
-            let handles = LOCK_HANDLES.lock().unwrap();
-            assert!(
-                !handles.contains_key(session_id),
-                "Lock handle should be removed"
-            );
-        }
+        // Now another session should be able to acquire the lock
+        acquire_lock(other_session_id).unwrap();
+        assert!(lock_path.exists(), "Lock file should exist for new session");
+        release_lock(other_session_id).unwrap();
 
         // Restore original directory
         std::env::set_current_dir(original_dir).unwrap();
