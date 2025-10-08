@@ -8,6 +8,7 @@ install:
 
 release:
     cargo fmt --check
+    cargo clippy --all-targets --all-features -- -D warnings
 
     svbump write "$(changelog version latest)" package.version Cargo.toml
     cargo check
@@ -15,6 +16,7 @@ release:
     jj split Cargo.toml Cargo.lock CHANGELOG.md -m "chore: Release jjagent version $(svbump read package.version Cargo.toml)"
 
     jj bookmark move main --to @-
+    jj git push
 
     git tag "v$(svbump read package.version Cargo.toml)" "$(jj log -r @- -T commit_id --no-graph)"
     git push origin "v$(svbump read package.version Cargo.toml)"

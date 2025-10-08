@@ -9,7 +9,11 @@ claude code hooks to integrate with jujutsu vcs (jj). it isolates claude code se
 - if we need to read structured information from a commit or change description/message (e.g. a claude code session id) always parse it from the trailer and not the title (which also may include it)
 - in general errors should either be handled or panic, but not be silently dropped
 - when snapshot testing, you can look at diffs for a given change via description with `jj log -r 'description(glob:"your description*")' -p`
+- if asked to review jjagent logs, they are in ~/.cache/jjagent/jjagent.jsonl
 
+## workflow
+
+- Be sure to run tests and address clippy changes when you’re done making a series of code changes: `cargo clippy --all-targets --all-features -- -D warnings`
 
 ## Running Tests
 
