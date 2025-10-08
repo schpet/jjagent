@@ -90,16 +90,16 @@ pub fn acquire_lock(session_id: &str) -> Result<()> {
             }
             Err(_) if start.elapsed() < timeout => {
                 // Check if lock is stale and can be stolen
-                if let Some(metadata) = read_lock_holder(&lock_path) {
-                    if metadata.age_seconds() > LOCK_TIMEOUT_SECS {
-                        eprintln!(
-                            "jjagent: Lock is stale ({:.0}s old), attempting to steal it",
-                            metadata.age_seconds()
-                        );
-                        // Try to remove stale lock
-                        if std::fs::remove_file(&lock_path).is_ok() {
-                            continue; // Try to acquire again immediately
-                        }
+                if let Some(metadata) = read_lock_holder(&lock_path)
+                    && metadata.age_seconds() > LOCK_TIMEOUT_SECS
+                {
+                    eprintln!(
+                        "jjagent: Lock is stale ({:.0}s old), attempting to steal it",
+                        metadata.age_seconds()
+                    );
+                    // Try to remove stale lock
+                    if std::fs::remove_file(&lock_path).is_ok() {
+                        continue; // Try to acquire again immediately
                     }
                 }
 
