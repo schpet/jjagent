@@ -2,7 +2,8 @@
 source: tests/snapshot_test.rs
 expression: snapshot
 ---
-@  
+@  base
+
 ○  jjagent: session multipar pt. 3
 
 Claude-session-id: multipart-test-12345678
@@ -13,12 +14,8 @@ Claude-session-id: multipart-test-12345678
 
 Added regular file part1.txt:
         1: first part
-○  uwc
-
 ○  jjagent: session multipar
 
 Claude-session-id: multipart-test-12345678
-
-○  base
 
 ◆

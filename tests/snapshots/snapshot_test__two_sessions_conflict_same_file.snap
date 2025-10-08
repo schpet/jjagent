@@ -2,15 +2,14 @@
 source: tests/snapshot_test.rs
 expression: snapshot
 ---
-@  
+@  uwc
+
 ○  jjagent: session session1 pt. 2
 
 Claude-session-id: session1-conflict-12345678
 
 Modified regular file claude.txt:
    1    1: session 21 second version
-○  uwc
-
 ○  jjagent: session session2
 
 Claude-session-id: session2-conflict-87654321
