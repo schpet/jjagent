@@ -114,6 +114,14 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
 /// 3. Attempts to squash precommit into session
 /// 4. If conflicts occur, handles them by creating a new session part
 fn finalize_precommit(session_id: SessionId) -> Result<()> {
+    // Update stale working copy before any jj operations
+    // This prevents "stale working copy" errors during squash operations
+    // especially when file watchers create automatic snapshots
+    let _output = Command::new("jj")
+        .args(["workspace", "update-stale"])
+        .output()
+        .context("Failed to update stale working copy")?;
+
     // Verify @ is a precommit for this session
     // If not (different session or not a precommit), this is a noop
     if !crate::jj::is_current_commit_precommit_for_session(session_id.full())? {
