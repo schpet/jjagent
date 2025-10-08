@@ -172,7 +172,7 @@ fn test_parallel_sessions_with_locking() {
 
     // Check that there are no divergent changes
     let log_output = Command::new("jj")
-        .args(["log", "-T", "change_id.short()"])
+        .args(["log", "-T", "change_id.short()", "--no-graph"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to run jj log");

@@ -77,6 +77,16 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
     // Acquire lock first - this will be held until PostToolUse/Stop
     crate::lock::acquire_lock(&input.session_id).context("Failed to acquire working copy lock")?;
 
+    // Update stale working copy to sync with any operations that happened while waiting for lock
+    // This is critical with watchman auto-snapshot to avoid divergence
+    let _output = Command::new("jj")
+        .args(["workspace", "update-stale"])
+        .output()
+        .context("Failed to update stale working copy")?;
+
+    // Note: update-stale succeeds with "Working copy already up to date" if not stale
+    // so we don't need to check the output
+
     let session_id = SessionId::from_full(&input.session_id);
     let commit_message = format_precommit_message(&session_id);
 

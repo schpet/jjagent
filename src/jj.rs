@@ -262,6 +262,45 @@ pub fn count_conflicts(change_id: &str) -> Result<usize> {
 }
 
 /// Get the change ID of a specific revision
+/// Get the description of a given revision
+/// If repo_path is provided, runs jj in that directory
+pub fn get_commit_description_in(revset: &str, repo_path: Option<&Path>) -> Result<String> {
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            revset,
+            "-T",
+            "description",
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
+        .output()
+        .context("Failed to execute jj log")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj log failed for revset '{}': {}",
+            revset,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let description = String::from_utf8_lossy(&output.stdout);
+    Ok(description.trim().to_string())
+}
+
+/// Get the description of a given revision in the current directory
+pub fn get_commit_description(revset: &str) -> Result<String> {
+    get_commit_description_in(revset, None)
+}
+
+/// Get the change ID of a given revision
 /// If repo_path is provided, runs jj in that directory
 pub fn get_change_id_in(revset: &str, repo_path: Option<&Path>) -> Result<String> {
     let mut cmd = Command::new("jj");
@@ -359,12 +398,12 @@ pub fn is_current_commit_precommit_for_session(session_id: &str) -> Result<bool>
 ///
 /// This function:
 /// 1. Counts conflicts on the session change before squash
-/// 2. Edits to the uwc commit
-/// 3. Squashes the precommit into the session change
+/// 2. Squashes the precommit into the session change (from current position, without edit)
+/// 3. Restores uwc by squashing it into the new empty commit
 /// 4. Counts conflicts after squash
 /// 5. Returns whether new conflicts were introduced
 pub fn squash_precommit_into_session_in(
-    precommit_id: &str,
+    _precommit_id: &str,
     session_id: &str,
     uwc_id: &str,
     repo_path: Option<&Path>,
@@ -372,24 +411,29 @@ pub fn squash_precommit_into_session_in(
     // Count conflicts before squash
     let conflicts_before = count_conflicts_in(session_id, repo_path)?;
 
-    // Edit to uwc
+    // Get uwc description before modifying anything
+    let uwc_description = get_commit_description_in(uwc_id, repo_path)?;
+
+    // Squash precommit into session (from current position @ = precommit)
+    // This leaves us on a new empty commit above uwc
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
         cmd.current_dir(path);
     }
     let output = cmd
-        .args(["edit", uwc_id])
+        .args(["squash", "--into", session_id, "--use-destination-message"])
         .output()
-        .context("Failed to execute jj edit")?;
+        .context("Failed to execute jj squash")?;
 
     if !output.status.success() {
         anyhow::bail!(
-            "jj edit failed: {}",
+            "jj squash failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
 
-    // Squash precommit into session
+    // Now we're on a new empty commit above uwc
+    // Restore uwc by squashing it into the current empty commit
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
         cmd.current_dir(path);
@@ -398,17 +442,18 @@ pub fn squash_precommit_into_session_in(
         .args([
             "squash",
             "--from",
-            precommit_id,
+            "@-", // from uwc (which is now @-)
             "--into",
-            session_id,
-            "--use-destination-message",
+            "@", // into current empty commit
+            "-m",
+            &uwc_description, // preserve uwc's description
         ])
         .output()
-        .context("Failed to execute jj squash")?;
+        .context("Failed to restore uwc")?;
 
     if !output.status.success() {
         anyhow::bail!(
-            "jj squash failed: {}",
+            "Failed to restore uwc: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
@@ -433,7 +478,7 @@ pub fn squash_precommit_into_session(
 /// If repo_path is provided, runs jj in that directory
 ///
 /// This function:
-/// 1. Runs `jj undo` twice to revert squash + edit
+/// 1. Runs `jj undo` twice to revert both squash operations (precommit->session, uwc->@)
 /// 2. Renames precommit to "jjagent: session {short_id} pt. {part}"
 /// 3. Creates a new working copy on top
 pub fn handle_squash_conflicts_in(
@@ -441,7 +486,7 @@ pub fn handle_squash_conflicts_in(
     part: usize,
     repo_path: Option<&Path>,
 ) -> Result<()> {
-    // Undo twice: once for squash, once for edit
+    // Undo twice: once for uwc restoration squash, once for precommit->session squash
     for _ in 0..2 {
         let mut cmd = Command::new("jj");
         if let Some(path) = repo_path {
