@@ -3,7 +3,13 @@
 default:
     @just -l -u
 
-install:
+logs-roll:
+    #!/usr/bin/env bash
+    if [ -f ~/.cache/jjagent/jjagent.jsonl ]; then
+        mv ~/.cache/jjagent/jjagent.jsonl ~/.cache/jjagent/jjagent.jsonl.$(date +%Y%m%d_%H%M%S)
+    fi
+
+install: logs-roll
     cargo install --path .
 
 release:
