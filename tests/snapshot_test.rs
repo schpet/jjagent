@@ -1250,25 +1250,25 @@ fn test_stop_hook_noop_on_session_mismatch() -> Result<()> {
 }
 
 #[test]
-fn test_hook_error_outputs_json() -> Result<()> {
+fn test_hook_noops_in_non_jj_repo() -> Result<()> {
     let repo = TestRepo::new_with_uwc()?;
     let session_id = "error-test-12345678";
     let simulator = ClaudeSimulator::new(repo.path(), session_id);
 
-    // Destroy the jj repo to force an error
+    // Destroy the jj repo - this simulates running in a non-jj repo
     let jj_dir = repo.path().join(".jj");
     std::fs::remove_dir_all(&jj_dir)?;
 
-    // Run a hook that will fail (PreToolUse requires jj to work)
+    // Run a hook - it should noop when not in a jj repo
     let output = simulator.run_hook_raw("PreToolUse", "Write")?;
 
-    // The hook should fail
+    // The hook should succeed with a noop (not fail)
     assert!(
-        !output.status.success(),
-        "Hook should fail when jj repo is broken"
+        output.status.success(),
+        "Hook should succeed (noop) when not in a jj repo"
     );
 
-    // Check that stdout contains JSON with continue: false and stopReason
+    // Check that stdout contains JSON with continue: true (allowing execution to proceed)
     let stdout = String::from_utf8_lossy(&output.stdout);
     eprintln!("Hook stdout: {}", stdout);
 
@@ -1276,22 +1276,53 @@ fn test_hook_error_outputs_json() -> Result<()> {
     let json: serde_json::Value =
         serde_json::from_str(&stdout).context("Hook stdout should contain valid JSON")?;
 
-    // Verify the JSON structure
+    // Verify the JSON structure - should continue execution
     assert_eq!(
         json.get("continue"),
-        Some(&serde_json::Value::Bool(false)),
-        "JSON should have continue: false"
+        Some(&serde_json::Value::Bool(true)),
+        "JSON should have continue: true for non-jj repos"
     );
 
+    // stopReason should not be present for successful hooks
     assert!(
-        json.get("stopReason").is_some(),
-        "JSON should have a stopReason field"
+        json.get("stopReason").is_none(),
+        "JSON should not have a stopReason for successful noop"
     );
 
-    let stop_reason = json.get("stopReason").and_then(|v| v.as_str()).unwrap();
-    assert!(!stop_reason.is_empty(), "stopReason should not be empty");
+    Ok(())
+}
 
-    eprintln!("Stop reason: {}", stop_reason);
+#[test]
+fn test_hook_does_not_create_jj_dir_in_git_repo() -> Result<()> {
+    use tempfile::TempDir;
+
+    // Create a temporary directory with just a git repo (no jj)
+    let temp_dir = TempDir::new()?;
+    let git_repo_path = temp_dir.path();
+
+    // Initialize a git repo
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(git_repo_path)
+        .output()?;
+
+    // Verify .jj doesn't exist
+    let jj_dir = git_repo_path.join(".jj");
+    assert!(!jj_dir.exists(), ".jj should not exist initially");
+
+    // Run the hook
+    let session_id = "git-only-test-12345678";
+    let simulator = ClaudeSimulator::new(git_repo_path, session_id);
+    let output = simulator.run_hook_raw("PreToolUse", "Write")?;
+
+    // Hook should succeed
+    assert!(output.status.success(), "Hook should succeed in git repo");
+
+    // IMPORTANT: Verify .jj directory was NOT created
+    assert!(
+        !jj_dir.exists(),
+        ".jj directory should NOT be created in git-only repos"
+    );
 
     Ok(())
 }

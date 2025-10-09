@@ -13,6 +13,16 @@ use std::process::Command;
 
 use crate::session::SessionId;
 
+/// Check if the current directory is a jj repository
+/// Returns true if `jj root` succeeds, indicating we're in a jj repo
+pub fn is_jj_repo() -> bool {
+    Command::new("jj")
+        .args(["root"])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// Represents a jj commit with its change ID, description, and optional session ID
 #[derive(Debug, Clone, PartialEq)]
 pub struct Commit {

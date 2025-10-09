@@ -74,6 +74,12 @@ impl HookInput {
 
 /// Handle PreToolUse hook - acquires lock and creates a new precommit change
 pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
+    // Check if we're in a jj repo - if not, this is a noop
+    if !crate::jj::is_jj_repo() {
+        eprintln!("jjagent: Not in a jj repository, skipping hook");
+        return Ok(());
+    }
+
     // Acquire lock first - this will be held until PostToolUse/Stop
     crate::lock::acquire_lock(&input.session_id).context("Failed to acquire working copy lock")?;
 
@@ -162,6 +168,12 @@ fn finalize_precommit(session_id: SessionId) -> Result<()> {
 
 /// Handle PostToolUse hook - squashes changes and manages conflicts, then releases lock
 pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
+    // Check if we're in a jj repo - if not, this is a noop
+    if !crate::jj::is_jj_repo() {
+        eprintln!("jjagent: Not in a jj repository, skipping hook");
+        return Ok(());
+    }
+
     let session_id = SessionId::from_full(&input.session_id);
 
     // Do the actual work
@@ -182,6 +194,12 @@ pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
 /// If @ is a precommit for this session, it finalizes the changes.
 /// Otherwise, it's a noop (user is already on uwc or another session is active).
 pub fn handle_stop_hook(input: HookInput) -> Result<()> {
+    // Check if we're in a jj repo - if not, this is a noop
+    if !crate::jj::is_jj_repo() {
+        eprintln!("jjagent: Not in a jj repository, skipping hook");
+        return Ok(());
+    }
+
     let session_id = SessionId::from_full(&input.session_id);
 
     // Do the actual work
