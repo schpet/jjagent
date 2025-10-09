@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2025-10-09
+
+### Fixed
+
+- avoid creating .jj dirs in non-jj repos
+
 ## [0.2.3] - 2025-10-09
 
 ### Changed
@@ -50,7 +56,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/schpet/jjagent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/schpet/jjagent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/schpet/jjagent/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/schpet/jjagent/compare/v0.2.0...v0.2.1
