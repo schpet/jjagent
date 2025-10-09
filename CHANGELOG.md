@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-10-09
+
+### Changed
+
+- improved management of user's working copy during conflicts
+
 ## [0.2.2] - 2025-10-07
 
 ### Added
@@ -44,7 +50,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/schpet/jjagent/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/schpet/jjagent/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/schpet/jjagent/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/schpet/jjagent/compare/v0.1.3...v0.2.0
