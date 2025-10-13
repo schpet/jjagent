@@ -154,7 +154,7 @@ impl TestRepo {
         // Disable watchman for tests
         let config_output = Command::new("jj")
             .current_dir(dir.path())
-            .args(["config", "set", "--repo", "core.fsmonitor", "none"])
+            .args(["config", "set", "--repo", "fsmonitor.backend", "none"])
             .output()?;
 
         if !config_output.status.success() {
