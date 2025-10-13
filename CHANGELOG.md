@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- introduced small delay to reduce branching
+
 ## [0.2.4] - 2025-10-09
 
 ### Fixed

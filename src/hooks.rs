@@ -176,6 +176,19 @@ pub fn handle_posttool_hook(input: HookInput) -> Result<()> {
 
     let session_id = SessionId::from_full(&input.session_id);
 
+    // Small delay to allow file watchers (watchman, fsmonitor) to complete their snapshots
+    // This reduces the chance of concurrent operations creating divergent operation log branches
+    // that can interfere with linearization and squashing
+    // Configurable via JJAGENT_POSTTOOL_DELAY_MS (default: 100ms)
+    let delay_ms = std::env::var("JJAGENT_POSTTOOL_DELAY_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(100);
+
+    if delay_ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+    }
+
     // Do the actual work
     let result = finalize_precommit(session_id);
 
