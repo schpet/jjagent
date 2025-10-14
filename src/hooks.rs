@@ -93,6 +93,27 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
     // Note: update-stale succeeds with "Working copy already up to date" if not stale
     // so we don't need to check the output
 
+    // Invariant check: ensure we're at a head (no descendants) before creating a new change
+    // This prevents branching which jjagent aims to avoid
+    match crate::jj::is_at_head() {
+        Ok(false) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!(
+                "Working copy (@) is not at a head - it has descendants. \
+                 jjagent requires a linear history. Please resolve this before continuing."
+            );
+        }
+        Err(e) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!("Failed to check if at head: {}", e);
+        }
+        Ok(true) => {
+            // All good, we're at a head
+        }
+    }
+
     let session_id = SessionId::from_full(&input.session_id);
     let commit_message = format_precommit_message(&session_id);
 

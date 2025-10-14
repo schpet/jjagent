@@ -23,6 +23,19 @@ pub fn is_jj_repo() -> bool {
         .unwrap_or(false)
 }
 
+/// Check if the working copy (@) is at a head (has no descendants)
+/// Returns true if @ has no descendants, false otherwise
+/// If repo_path is provided, runs jj in that directory
+pub fn is_at_head_in(repo_path: Option<&Path>) -> Result<bool> {
+    let descendants = get_descendants_in(repo_path)?;
+    Ok(descendants.is_empty())
+}
+
+/// Check if the working copy (@) is at a head in the current directory
+pub fn is_at_head() -> Result<bool> {
+    is_at_head_in(None)
+}
+
 /// Represents a jj commit with its change ID, description, and optional session ID
 #[derive(Debug, Clone, PartialEq)]
 pub struct Commit {

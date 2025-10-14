@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- prevent claude from making changes when @ is not at the head
+
 ## [0.2.5] - 2025-10-13
 
 ### Changed

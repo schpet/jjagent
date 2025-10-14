@@ -1425,3 +1425,82 @@ fn test_two_sessions_separate_files() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_pretool_hook_fails_when_not_at_head() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "not-at-head-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Create a descendant of @ so @ is not at a head
+    // Structure: new_commit -> @ (uwc) -> base -> root
+    let new_commit = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "descendant commit"])
+        .output()?;
+
+    if !new_commit.status.success() {
+        anyhow::bail!(
+            "Failed to create descendant: {}",
+            String::from_utf8_lossy(&new_commit.stderr)
+        );
+    }
+
+    // Move @ back to uwc so it has a descendant
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit uwc: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Verify @ now has a descendant (not at head)
+    let is_at_head = jjagent::jj::is_at_head_in(Some(repo.path()))?;
+    assert!(
+        !is_at_head,
+        "@ should not be at a head for this test to be valid"
+    );
+
+    // Try to run PreToolUse hook - it should fail
+    let output = simulator.run_hook_raw("PreToolUse", "Write")?;
+
+    // The hook should fail
+    assert!(
+        !output.status.success(),
+        "PreToolUse hook should fail when @ is not at a head"
+    );
+
+    // Check the error message in stdout (JSON response)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("Hook stdout: {}", stdout);
+
+    // Parse the JSON
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).context("Hook stdout should contain valid JSON")?;
+
+    // Verify the JSON structure - should not continue execution
+    assert_eq!(
+        json.get("continue"),
+        Some(&serde_json::Value::Bool(false)),
+        "JSON should have continue: false when not at head"
+    );
+
+    // stopReason should be present
+    let stop_reason = json
+        .get("stopReason")
+        .and_then(|v| v.as_str())
+        .context("stopReason should be present")?;
+
+    assert!(
+        stop_reason.contains("not at a head"),
+        "stopReason should mention 'not at a head', got: {}",
+        stop_reason
+    );
+
+    Ok(())
+}
