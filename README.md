@@ -21,22 +21,28 @@ tracks claude code sessions as jujutsu [changes](https://jj-vcs.github.io/jj/lat
 
 ## installation
 
-### homebrew
+<details>
+<summary>homebrew</summary>
 
 ```bash
 brew install schpet/tap/jjagent
 ```
+</details>
 
-### binaries
+<details>
+<summary>binaries</summary>
 
 https://github.com/schpet/jjagent/releases/latest
+</details>
 
-### from source
+<details>
+<summary>from source</summary>
 
 ```bash
 # clone jj agent locally
 cargo install --path .
 ```
+</details>
 
 ## setup
 
