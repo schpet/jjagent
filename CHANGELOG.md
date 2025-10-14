@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.6] - 2025-10-13
+
 ### Changed
 
 - prevent claude from making changes when @ is not at the head
@@ -67,7 +69,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/schpet/jjagent/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/schpet/jjagent/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/schpet/jjagent/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/schpet/jjagent/compare/v0.2.2...v0.2.3
