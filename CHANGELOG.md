@@ -5,6 +5,7 @@
 ### Changed
 
 - prevent claude from making changes when @ is not at the head
+- prevent claude from making changes when repo is in a conflicted state
 
 ## [0.2.5] - 2025-10-13
 

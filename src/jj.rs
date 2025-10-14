@@ -36,6 +36,44 @@ pub fn is_at_head() -> Result<bool> {
     is_at_head_in(None)
 }
 
+/// Check if there are any conflicts in the working copy (@)
+/// Returns true if conflicts exist, false otherwise
+/// If repo_path is provided, runs jj in that directory
+pub fn has_conflicts_in(repo_path: Option<&Path>) -> Result<bool> {
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            "conflicts() & @",
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()
+        .context("Failed to execute jj log for conflict detection")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj log failed while checking for conflicts: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // If there's any output, it means @ has conflicts
+    Ok(!stdout.trim().is_empty())
+}
+
+/// Check if there are any conflicts in the working copy (@) in the current directory
+pub fn has_conflicts() -> Result<bool> {
+    has_conflicts_in(None)
+}
+
 /// Represents a jj commit with its change ID, description, and optional session ID
 #[derive(Debug, Clone, PartialEq)]
 pub struct Commit {

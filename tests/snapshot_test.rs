@@ -1504,3 +1504,278 @@ fn test_pretool_hook_fails_when_not_at_head() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_pretool_hook_fails_with_conflicts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "conflict-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Create a file
+    fs::write(repo.path().join("test.txt"), "original content")?;
+
+    // Commit it to the working copy
+    let describe_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "add test file"])
+        .output()?;
+
+    if !describe_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe: {}",
+            String::from_utf8_lossy(&describe_output.stderr)
+        );
+    }
+
+    // Create a descendant with different content
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "modify test file"])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create new: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    // Modify the file in the new change
+    fs::write(repo.path().join("test.txt"), "descendant content")?;
+
+    // Describe to save changes
+    let describe_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "descendant modification"])
+        .output()?;
+
+    if !describe_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe descendant: {}",
+            String::from_utf8_lossy(&describe_output.stderr)
+        );
+    }
+
+    // Go back to the parent and modify it differently to create conflict
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit parent: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Modify the same file differently
+    fs::write(repo.path().join("test.txt"), "parent content")?;
+
+    // Describe to save changes
+    let describe_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "parent modification"])
+        .output()?;
+
+    if !describe_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe parent: {}",
+            String::from_utf8_lossy(&describe_output.stderr)
+        );
+    }
+
+    // Try to rebase descendant onto parent - this will create a conflict
+    let rebase_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["rebase", "-s", "@+", "-d", "@"])
+        .output()?;
+
+    // Rebase command may succeed but create conflicts
+    eprintln!(
+        "Rebase output: {}",
+        String::from_utf8_lossy(&rebase_output.stderr)
+    );
+
+    // Edit the conflicted change
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@+"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit conflicted change: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Verify we have conflicts
+    let has_conflicts = jjagent::jj::has_conflicts_in(Some(repo.path()))?;
+    assert!(
+        has_conflicts,
+        "@ should have conflicts for this test to be valid"
+    );
+
+    // Try to run PreToolUse hook - it should fail
+    let output = simulator.run_hook_raw("PreToolUse", "Write")?;
+
+    // The hook should fail
+    assert!(
+        !output.status.success(),
+        "PreToolUse hook should fail when @ has conflicts"
+    );
+
+    // Check the error message in stdout (JSON response)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("Hook stdout: {}", stdout);
+
+    // Parse the JSON
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).context("Hook stdout should contain valid JSON")?;
+
+    // Verify the JSON structure - should not continue execution
+    assert_eq!(
+        json.get("continue"),
+        Some(&serde_json::Value::Bool(false)),
+        "JSON should have continue: false when there are conflicts"
+    );
+
+    // stopReason should be present and mention conflicts
+    let stop_reason = json
+        .get("stopReason")
+        .and_then(|v| v.as_str())
+        .context("stopReason should be present")?;
+
+    assert!(
+        stop_reason.contains("conflicts"),
+        "stopReason should mention 'conflicts', got: {}",
+        stop_reason
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_posttool_hook_fails_with_conflicts() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "posttool-conflict-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Run PreToolUse to create a precommit
+    simulator.run_hook("PreToolUse", "Write")?;
+
+    // Create a file
+    fs::write(repo.path().join("test.txt"), "original content")?;
+
+    // Create a conflict scenario similar to the pretool test
+    // Create a new change with content
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "conflicting change"])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create new: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    // Modify the file in the new change
+    fs::write(repo.path().join("test.txt"), "descendant content")?;
+
+    // Describe to save changes
+    let describe_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "descendant modification"])
+        .output()?;
+
+    if !describe_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe descendant: {}",
+            String::from_utf8_lossy(&describe_output.stderr)
+        );
+    }
+
+    // Go back to the precommit and modify it differently
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@-"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit precommit: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Modify the same file differently
+    fs::write(repo.path().join("test.txt"), "precommit content")?;
+
+    // Describe to save changes
+    let describe_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["describe", "-m", "precommit modification"])
+        .output()?;
+
+    if !describe_output.status.success() {
+        anyhow::bail!(
+            "Failed to describe precommit: {}",
+            String::from_utf8_lossy(&describe_output.stderr)
+        );
+    }
+
+    // Try to rebase descendant onto precommit - this will create a conflict
+    let rebase_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["rebase", "-s", "@+", "-d", "@"])
+        .output()?;
+
+    eprintln!(
+        "Rebase output: {}",
+        String::from_utf8_lossy(&rebase_output.stderr)
+    );
+
+    // Edit the conflicted change (which should be the precommit now)
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "@+"])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit conflicted change: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Verify we have conflicts
+    let has_conflicts = jjagent::jj::has_conflicts_in(Some(repo.path()))?;
+    assert!(
+        has_conflicts,
+        "@ should have conflicts for this test to be valid"
+    );
+
+    // Try to run PostToolUse hook - it should fail
+    let output = simulator.run_hook_raw("PostToolUse", "Write")?;
+
+    // The hook should fail
+    assert!(
+        !output.status.success(),
+        "PostToolUse hook should fail when @ has conflicts"
+    );
+
+    // Check the error in stderr
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprintln!("Hook stderr: {}", stderr);
+
+    assert!(
+        stderr.contains("conflicts"),
+        "Error message should mention conflicts, got: {}",
+        stderr
+    );
+
+    Ok(())
+}

@@ -114,6 +114,27 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
         }
     }
 
+    // Invariant check: ensure there are no conflicts in the working copy
+    // This prevents Claude from working on a conflicted state
+    match crate::jj::has_conflicts() {
+        Ok(true) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!(
+                "Working copy (@) has conflicts. \
+                 Please resolve all conflicts before continuing."
+            );
+        }
+        Err(e) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!("Failed to check for conflicts: {}", e);
+        }
+        Ok(false) => {
+            // All good, no conflicts
+        }
+    }
+
     let session_id = SessionId::from_full(&input.session_id);
     let commit_message = format_precommit_message(&session_id);
 
@@ -148,6 +169,15 @@ fn finalize_precommit(session_id: SessionId) -> Result<()> {
         .args(["workspace", "update-stale"])
         .output()
         .context("Failed to update stale working copy")?;
+
+    // Invariant check: ensure there are no conflicts in the working copy
+    // This prevents finalizing changes with unresolved conflicts
+    if crate::jj::has_conflicts()? {
+        anyhow::bail!(
+            "Working copy (@) has conflicts. \
+             Cannot finalize changes until conflicts are resolved."
+        );
+    }
 
     // Verify @ is a precommit for this session
     // If not (different session or not a precommit), this is a noop
