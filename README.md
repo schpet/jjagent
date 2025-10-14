@@ -10,7 +10,7 @@ tracks claude code sessions as jujutsu [changes](https://jj-vcs.github.io/jj/lat
 
 ## how it works
 
-(todo...)
+the basic gist is that in the pre tool use a new change is made. this is where claude makes its changes. and in the post tool use that change is squashed into the claude 'session change' – this is the long lived one. this happens everytime claude makes changes. if conflicts are detected after squashing, it undoes the changes and splits out a pt. 2 for the session and so on.
 
 ## constraints
 
@@ -58,3 +58,7 @@ Run tests:
 ```bash
 cargo test
 ```
+
+## acknowledgements
+
+inspired directly by gitbutler's [claude code hooks](https://docs.gitbutler.com/features/ai-integration/claude-code-hooks)
