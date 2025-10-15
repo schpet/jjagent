@@ -1779,3 +1779,77 @@ fn test_posttool_hook_fails_with_conflicts() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_pretool_hook_fails_on_session_change() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "session-change-test-12345678";
+    let simulator = ClaudeSimulator::new(repo.path(), session_id);
+
+    // Create a session change
+    let session_id_struct = jjagent::session::SessionId::from_full(session_id);
+    jjagent::jj::create_session_change_in(&session_id_struct, Some(repo.path()))?;
+
+    // Find the session change and edit to it
+    let session_change =
+        jjagent::jj::find_session_change_anywhere_in(session_id, Some(repo.path()))?
+            .context("Session change should exist")?;
+
+    let edit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", &session_change.change_id])
+        .output()?;
+
+    if !edit_output.status.success() {
+        anyhow::bail!(
+            "Failed to edit session change: {}",
+            String::from_utf8_lossy(&edit_output.stderr)
+        );
+    }
+
+    // Verify we're on a session change
+    let current_session_id = jjagent::jj::get_current_commit_session_id_in(Some(repo.path()))?;
+    assert!(
+        current_session_id.is_some(),
+        "@ should be a session change for this test to be valid"
+    );
+
+    // Try to run PreToolUse hook - it should fail
+    let output = simulator.run_hook_raw("PreToolUse", "Write")?;
+
+    // The hook should fail
+    assert!(
+        !output.status.success(),
+        "PreToolUse hook should fail when @ is a session change"
+    );
+
+    // Check the error message in stdout (JSON response)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("Hook stdout: {}", stdout);
+
+    // Parse the JSON
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).context("Hook stdout should contain valid JSON")?;
+
+    // Verify the JSON structure - should not continue execution
+    assert_eq!(
+        json.get("continue"),
+        Some(&serde_json::Value::Bool(false)),
+        "JSON should have continue: false when @ is a session change"
+    );
+
+    // stopReason should be present and mention session change
+    let stop_reason = json
+        .get("stopReason")
+        .and_then(|v| v.as_str())
+        .context("stopReason should be present")?;
+
+    assert!(
+        stop_reason.contains("session change") && stop_reason.contains("Claude-session-id"),
+        "stopReason should mention 'session change' and 'Claude-session-id', got: {}",
+        stop_reason
+    );
+
+    Ok(())
+}
+

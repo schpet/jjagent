@@ -93,6 +93,31 @@ pub fn handle_pretool_hook(input: HookInput) -> Result<()> {
     // Note: update-stale succeeds with "Working copy already up to date" if not stale
     // so we don't need to check the output
 
+    // Invariant check: ensure we're not on a session change (has Claude-session-id trailer)
+    // This prevents Claude from working directly on a session change
+    match crate::jj::get_current_commit_session_id() {
+        Ok(Some(session_id)) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!(
+                "Working copy (@) is a session change with Claude-session-id: {}. \
+                 Cannot work directly on a session change. Please move to a different change.",
+                session_id
+            );
+        }
+        Err(e) => {
+            // Release lock on error
+            let _ = crate::lock::release_lock(&input.session_id);
+            anyhow::bail!(
+                "Failed to check if current commit is a session change: {}",
+                e
+            );
+        }
+        Ok(None) => {
+            // All good, we're not on a session change
+        }
+    }
+
     // Invariant check: ensure we're at a head (no descendants) before creating a new change
     // This prevents branching which jjagent aims to avoid
     match crate::jj::is_at_head() {

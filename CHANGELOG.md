@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- prevent claude from making changes when @ is on a session change (has Claude-session-id trailer)
+
 ## [0.2.6] - 2025-10-13
 
 ### Changed
