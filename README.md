@@ -4,7 +4,7 @@ tracks claude code sessions as jj [changes](https://jj-vcs.github.io/jj/latest/g
 
 ## how it works
 
-when you start, `@` is at the head. lets call `@` 'users working copy' given its where the user works.
+when you start, `@` is at the head. lets call `@` 'users working copy' given its where you, the user works. you can change things while claude works away in the background and your changes will be here.
 
 when a claude session is started and `PreToolUse` fires, jjagent will make a new change – a descendant of the users working copy. this is a fresh change for claude's changes to live in. after claude is done changing files, the `PostToolUse` fires and jjagent will squash those changes into a new direct ancestor of the users working copy. jj automatically rebases the descendants during the squash, and `@` is back to the users working copy. subsequent claude edit tool calls will find the session's change based on a Claude-session-id trailer in the change description.
 
@@ -14,7 +14,7 @@ it's attribution is not perfect: you might write a file while we're on a claude 
 
 ## assumptions, constraints, limitations
 
-- `@`, aka working copy commit, must be kept at [head](https://jj-vcs.github.io/jj/latest/glossary/#head) – if you move `@` elsewhere while claude is doing its thing you are in for a bad time: claude will branch or otherwise do things on wrong assumptions
+- you need to keep `@` as a descendent of claude's changes, the assumed workflow is that you will be working at the [head](https://jj-vcs.github.io/jj/latest/glossary/#head) or tip of descendants– if you move `@` backwards while claude is doing its thing you are in for a bad time: claude will branch or otherwise do things on wrong assumptions
 - when claude is editing files, avoid running jj commands that might have side effects, ensure if you're running jj commands while claude sessions are updating files, that you use `--ignore-working-copy`. things like [running `jj log` within `watch`](https://jj-vcs.github.io/jj/latest/FAQ/#can-i-monitor-how-jj-log-evolves), shell prompts need to have `--ignore-working-copy`
 - assumes you're running claude with 'accept edits on'
 - avoid running `jj describe` interactively: if claude code edits a file while you have your describe editor open you'll run into 'Error: The "@" expression resolved to more than one operation'
