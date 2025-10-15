@@ -66,3 +66,8 @@ pub fn format_claude_settings() -> Result<String> {
 
     Ok(serde_json::to_string_pretty(&config)?)
 }
+
+/// Split a change by inserting a new change before @ (working copy)
+pub fn split_change(reference: &str) -> Result<()> {
+    jj::split_change(reference, None)
+}

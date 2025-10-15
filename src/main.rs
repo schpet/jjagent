@@ -15,6 +15,12 @@ enum Commands {
     /// Claude Code integration
     #[command(subcommand, alias = "c")]
     Claude(ClaudeCommands),
+    /// Split a change into a new session part before @
+    Split {
+        /// The jj reference to split (e.g., a change ID or revset)
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -95,6 +101,9 @@ fn main() -> Result<()> {
                     }
                 }
             }
+        }
+        Commands::Split { reference } => {
+            jjagent::split_change(&reference)?;
         }
     }
 

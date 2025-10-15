@@ -775,6 +775,102 @@ pub fn handle_squash_conflicts(session_id: &SessionId, part: usize) -> Result<()
     handle_squash_conflicts_in(session_id, part, None)
 }
 
+/// Split a change by inserting a new change before @ (working copy)
+/// The reference must be an ancestor of @
+/// If the reference has a session ID, creates a new session part
+pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
+    // Check if reference is an ancestor of @ and get its session ID
+    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
+
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            &format!("{}..@", reference),
+            "--no-graph",
+            "-T",
+            template,
+        ])
+        .output()
+        .context("Failed to check if reference is an ancestor")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to check ancestry: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // If the output is empty, then reference is not a proper ancestor
+    if stdout.trim().is_empty() {
+        anyhow::bail!("Reference '{}' is not an ancestor of @", reference);
+    }
+
+    // Get the session ID from the reference commit
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+    let output = cmd
+        .args(["log", "-r", reference, "--no-graph", "-T", template])
+        .output()
+        .context("Failed to get reference commit info")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to get reference commit: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let ref_output = String::from_utf8_lossy(&output.stdout);
+    let ref_commits = parse_commits(&ref_output)?;
+
+    let session_id = ref_commits
+        .first()
+        .and_then(|c| c.session_id.as_ref())
+        .context("Reference commit does not have a session ID")?;
+
+    let session_id = SessionId::from_full(session_id);
+
+    // Count existing session parts
+    let next_part = count_session_parts_in(session_id.full(), repo_path)? + 1;
+
+    // Insert a new change after reference and before @, keeping @ as working copy
+    let message = crate::session::format_session_part_message(&session_id, next_part);
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+    let output = cmd
+        .args([
+            "new",
+            "--after",
+            reference,
+            "--insert-before",
+            "@",
+            "--no-edit",
+            "-m",
+            &message,
+        ])
+        .output()
+        .context("Failed to insert new change")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to insert new change: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
 /// Parse commits from jj log output
 /// Format: change_id\ndescription\nsession_id\n---\n
 fn parse_commits(output: &str) -> Result<Vec<Commit>> {

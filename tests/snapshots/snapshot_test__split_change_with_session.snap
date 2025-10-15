@@ -1,0 +1,19 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  uwc
+
+Added regular file session_file.txt:
+        1: session content
+○  jjagent: session split-te pt. 2
+
+Claude-session-id: split-test-12345678
+
+○  base
+
+○  jjagent: session split-te
+
+Claude-session-id: split-test-12345678
+
+◆

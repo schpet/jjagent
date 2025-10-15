@@ -1853,3 +1853,106 @@ fn test_pretool_hook_fails_on_session_change() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn test_split_change_basic() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("split-basic-12345678");
+
+    // Create a session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Get the session change ID
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "log",
+            "-r",
+            &format!("description(glob:\"*{}*\")", session_id.short()),
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()?;
+
+    let session_change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Create a commit on the session (will become the parent of @)
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", &session_change_id])
+        .output()?;
+
+    std::fs::write(repo.path().join("file1.txt"), "content1")?;
+
+    // Split at session, inserting a new change before @ (which is currently at commit1)
+    jjagent::jj::split_change(&session_change_id, Some(repo.path()))?;
+
+    // Verify: @ should have a new session part inserted between session and commit1
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("split_change_basic", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_split_change_not_ancestor() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+
+    // Try to split on a non-existent/non-ancestor change
+    let result = jjagent::jj::split_change("nonexistent", Some(repo.path()));
+
+    // Should fail
+    assert!(
+        result.is_err(),
+        "split_change should fail for non-ancestor reference"
+    );
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("not an ancestor") || err_msg.contains("Failed to check ancestry"),
+        "Error should mention ancestry check failure, got: {}",
+        err_msg
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_split_change_with_session() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("split-test-12345678");
+
+    // Create a session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    std::fs::write(repo.path().join("session_file.txt"), "session content")?;
+
+    // Get the session change ID
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "log",
+            "-r",
+            &format!("description(glob:\"*{}*\")", session_id.short()),
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()?;
+
+    let session_change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Split at the session change
+    jjagent::jj::split_change(&session_change_id, Some(repo.path()))?;
+
+    // Verify the new structure
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("split_change_with_session", snapshot);
+
+    Ok(())
+}
