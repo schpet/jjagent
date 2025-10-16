@@ -1,0 +1,20 @@
+{
+  "name": "jjagent",
+  "owner": {
+    "name": "schpet"
+  },
+  "description": "marketplace for jjagent claude code plugin",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "jjagent",
+      "description": "setup hooks for jjagent",
+      "version": "0.1.0",
+      "author": {
+        "name": "schpet"
+      },
+      "homepage": "https://github.com/schpet/jjagent",
+      "source": "./"
+    }
+  ]
+}

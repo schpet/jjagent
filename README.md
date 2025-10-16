@@ -51,10 +51,20 @@ cargo install --path .
 
 ## setup
 
-1. update ~/.claude/settings.json with the json this command dumps out
+1. update ~/.claude/settings.json with the json this command dumps out:
    ```bash
    jjagent claude settings
    ```
+2. use claude code normally in a jj repo - jjagent runs automatically via hooks
+
+### experimental: via plugin
+
+1. add the marketplace and install the plugin:
+   ```bash
+   /plugin marketplace add schpet/jjagent
+   /plugin install jjagent@jjagent
+   ```
+
 2. use claude code normally in a jj repo - jjagent runs automatically via hooks
 
 ## development
