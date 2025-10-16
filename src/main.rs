@@ -53,6 +53,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let result = run_command(cli);
+
+    // Log any errors that occurred
+    if let Err(ref e) = result {
+        jjagent::logger::logger().log_error(e, "main");
+    }
+
+    result
+}
+
+fn run_command(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Claude(claude_cmd) => {
             // Handle Settings command outside of jj repo check

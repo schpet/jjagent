@@ -6,7 +6,15 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+
+/// Global logger instance
+static LOGGER: OnceLock<Logger> = OnceLock::new();
+
+/// Get the global logger instance
+pub fn logger() -> &'static Logger {
+    LOGGER.get_or_init(Logger::new)
+}
 
 /// Log entry structure for JSONL output
 #[derive(Debug, Serialize)]
@@ -253,6 +261,29 @@ impl Logger {
             prompt_preview: None,
             result: Some(result_str),
             error_message: error_msg,
+            details: None,
+        };
+
+        let _ = self.log(entry);
+    }
+
+    /// Log an error with context
+    pub fn log_error(&self, error: &anyhow::Error, context: &str) {
+        if !self.is_enabled() {
+            return;
+        }
+
+        let entry = LogEntry {
+            timestamp: Utc::now().to_rfc3339(),
+            event: "error".to_string(),
+            session_id: None,
+            cwd: None,
+            jj_change_id: None,
+            commit_id: None,
+            tool_name: None,
+            prompt_preview: Some(context.to_string()),
+            result: Some("error".to_string()),
+            error_message: Some(format!("{:#}", error)),
             details: None,
         };
 
