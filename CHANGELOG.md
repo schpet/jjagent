@@ -6,6 +6,7 @@
 
 - prevent claude from making changes when @ is on a session change (has Claude-session-id trailer)
 - split command
+- claude code plugin support for easier hook install
 
 ## [0.2.6] - 2025-10-13
 

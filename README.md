@@ -14,9 +14,9 @@ it's attribution is not perfect: you might write a file while we're on a claude 
 
 ## assumptions, constraints, limitations
 
-- you need to keep `@` as a descendent of claude's changes, the assumed workflow is that you will be working at the [head](https://jj-vcs.github.io/jj/latest/glossary/#head) or tip of descendants– if you move `@` backwards while claude is doing its thing you are in for a bad time: claude will branch or otherwise do things on wrong assumptions
-- when claude is editing files, avoid running jj commands that might have side effects, ensure if you're running jj commands while claude sessions are updating files, that you use `--ignore-working-copy`. things like [running `jj log` within `watch`](https://jj-vcs.github.io/jj/latest/FAQ/#can-i-monitor-how-jj-log-evolves), shell prompts need to have `--ignore-working-copy`
-- assumes you're running claude with 'accept edits on'
+- you need to keep `@` as a descendent of claude's changes, the assumed workflow is that you will be working at the [head](https://jj-vcs.github.io/jj/latest/glossary/#head) or tip of descendants. if you move `@` backwards while claude is doing its thing you are in for a bad time: claude will branch or otherwise do things on wrong assumptions
+- assumes you're running claude with 'accept edits on' or 'bypass permissions on'
+- when claude is editing files, avoid running jj commands that might have side effects. make sure to use `--ignore-wroking-copy` to prevent that
 - avoid running `jj describe` interactively: if claude code edits a file while you have your describe editor open you'll run into 'Error: The "@" expression resolved to more than one operation'
 - jjagent is currently only able to properly attribute changes from the `Edit|MultiEdit|Write` claude code tools, claude often changes files with bash and jjagent doesn't try to track that
 - right now, jjagent is coupled very tightly to claude code. hopefully other agents (codex cli, gemini cli, et al) support hooks similar to claude code in the future and can be supported.
@@ -51,20 +51,26 @@ cargo install --path .
 
 ## setup
 
-1. update ~/.claude/settings.json with the json this command dumps out:
-   ```bash
-   jjagent claude settings
-   ```
-2. use claude code normally in a jj repo - jjagent runs automatically via hooks
-
-### experimental: via plugin
+### via claude code plugin (recommended)
 
 1. add the marketplace and install the plugin:
    ```bash
    /plugin marketplace add schpet/jjagent
    /plugin install jjagent@jjagent
    ```
+1. restart claude code
+1. use claude code normally in a jj repo - jjagent runs automatically via hooks
 
+
+> [!NOTE]
+> if you don't have the `/plugin` command you are likely running an old version of claude code. ensure you're on version 2.0.19 or later
+
+### via settings (fallback)
+
+1. update ~/.claude/settings.json with the json this command dumps out:
+   ```bash
+   jjagent claude settings
+   ```
 2. use claude code normally in a jj repo - jjagent runs automatically via hooks
 
 ## development
@@ -77,14 +83,12 @@ cargo test
 
 ## mood board
 
-
 > You see, jj was designed around a single feature requirement. That requirement led to a very simple design addition to Git's DVCS model, that naturally enabled all of the features:
 >
 > jj was designed to support concurrency.
 
 – [Jujutsu is great for the wrong reason](https://www.felesatra.moe/blog/2024/12/23/jj-is-great-for-the-wrong-reason)
 
-
 ## acknowledgements
 
-inspired directly by gitbutler's [claude code hooks](https://docs.gitbutler.com/features/ai-integration/claude-code-hooks)
+inspired directly by [gitbutler's claude code hooks](https://docs.gitbutler.com/features/ai-integration/claude-code-hooks)
