@@ -8,6 +8,7 @@ args:
     description: Optional session summary to use instead of reviewing context
     required: false
 model: claude-haiku-4-5
+allowed-tools: Bash(jjagent:*), Bash(jj:*)
 ---
 
 # jj-describe
