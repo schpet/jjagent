@@ -154,7 +154,7 @@ pub fn find_session_change_anywhere_in(
     session_id: &str,
     repo_path: Option<&Path>,
 ) -> Result<Option<Commit>> {
-    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
+    let template = r#"change_id ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
 
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {

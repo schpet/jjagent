@@ -21,6 +21,13 @@ enum Commands {
         #[arg(value_name = "REF")]
         reference: String,
     },
+    /// Get the jj change ID for a Claude session
+    #[command(name = "change-id")]
+    ChangeId {
+        /// The Claude session ID
+        #[arg(value_name = "SESSION_ID")]
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -54,11 +61,6 @@ enum HookCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if env::var("JJAGENT_DISABLE").unwrap_or_default() == "1" {
-        eprintln!("jjagent: Disabled via JJAGENT_DISABLE=1");
-        return Ok(());
-    }
-
     let result = run_command(cli);
 
     // Log any errors that occurred
@@ -82,6 +84,12 @@ fn run_command(cli: Cli) -> Result<()> {
             match claude_cmd {
                 ClaudeCommands::Settings => unreachable!(),
                 ClaudeCommands::Hooks(hook_cmd) => {
+                    // Check if hooks are disabled
+                    if env::var("JJAGENT_DISABLE").unwrap_or_default() == "1" {
+                        eprintln!("jjagent: Disabled via JJAGENT_DISABLE=1");
+                        return Ok(());
+                    }
+
                     let hook_name = match hook_cmd {
                         HookCommands::PreToolUse => "PreToolUse",
                         HookCommands::PostToolUse => "PostToolUse",
@@ -160,6 +168,16 @@ fn run_command(cli: Cli) -> Result<()> {
         }
         Commands::Split { reference } => {
             jjagent::split_change(&reference)?;
+        }
+        Commands::ChangeId { session_id } => {
+            match jjagent::jj::find_session_change_anywhere(&session_id)? {
+                Some(commit) => {
+                    println!("{}", commit.change_id);
+                }
+                None => {
+                    anyhow::bail!("No change found for session ID: {}", session_id);
+                }
+            }
         }
     }
 
