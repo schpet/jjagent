@@ -43,6 +43,12 @@ enum HookCommands {
     /// Handle Stop hook
     #[command(name = "Stop")]
     Stop,
+    /// Handle SessionStart hook
+    #[command(name = "SessionStart")]
+    SessionStart,
+    /// Handle UserPromptSubmit hook
+    #[command(name = "UserPromptSubmit")]
+    UserPromptSubmit,
 }
 
 fn main() -> Result<()> {
@@ -80,34 +86,73 @@ fn run_command(cli: Cli) -> Result<()> {
                         HookCommands::PreToolUse => "PreToolUse",
                         HookCommands::PostToolUse => "PostToolUse",
                         HookCommands::Stop => "Stop",
+                        HookCommands::SessionStart => "SessionStart",
+                        HookCommands::UserPromptSubmit => "UserPromptSubmit",
                     };
                     eprintln!("jjagent: {} hook called", hook_name);
 
-                    let result = match hook_cmd {
-                        HookCommands::PreToolUse => {
+                    // SessionStart and UserPromptSubmit return HookResponse directly
+                    match hook_cmd {
+                        HookCommands::SessionStart => {
                             let input = jjagent::hooks::HookInput::from_stdin()?;
-                            jjagent::hooks::handle_pretool_hook(input)
+                            match jjagent::hooks::handle_session_start_hook(&input) {
+                                Ok(response) => {
+                                    response.output();
+                                }
+                                Err(e) => {
+                                    let response =
+                                        jjagent::hooks::HookResponse::stop(e.to_string());
+                                    response.output();
+                                    return Err(e);
+                                }
+                            }
                         }
-                        HookCommands::PostToolUse => {
+                        HookCommands::UserPromptSubmit => {
                             let input = jjagent::hooks::HookInput::from_stdin()?;
-                            jjagent::hooks::handle_posttool_hook(input)
+                            match jjagent::hooks::handle_user_prompt_submit_hook(&input) {
+                                Ok(response) => {
+                                    response.output();
+                                }
+                                Err(e) => {
+                                    let response =
+                                        jjagent::hooks::HookResponse::stop(e.to_string());
+                                    response.output();
+                                    return Err(e);
+                                }
+                            }
                         }
-                        HookCommands::Stop => {
-                            let input = jjagent::hooks::HookInput::from_stdin()?;
-                            jjagent::hooks::handle_stop_hook(input)
-                        }
-                    };
+                        _ => {
+                            // PreToolUse, PostToolUse, Stop return Result<()>
+                            let result = match hook_cmd {
+                                HookCommands::PreToolUse => {
+                                    let input = jjagent::hooks::HookInput::from_stdin()?;
+                                    jjagent::hooks::handle_pretool_hook(input)
+                                }
+                                HookCommands::PostToolUse => {
+                                    let input = jjagent::hooks::HookInput::from_stdin()?;
+                                    jjagent::hooks::handle_posttool_hook(input)
+                                }
+                                HookCommands::Stop => {
+                                    let input = jjagent::hooks::HookInput::from_stdin()?;
+                                    jjagent::hooks::handle_stop_hook(input)
+                                }
+                                _ => unreachable!(),
+                            };
 
-                    // Output JSON response based on result
-                    match result {
-                        Ok(_) => {
-                            let response = jjagent::hooks::HookResponse::continue_execution();
-                            response.output();
-                        }
-                        Err(e) => {
-                            let response = jjagent::hooks::HookResponse::stop(e.to_string());
-                            response.output();
-                            return Err(e);
+                            // Output JSON response based on result
+                            match result {
+                                Ok(_) => {
+                                    let response =
+                                        jjagent::hooks::HookResponse::continue_execution();
+                                    response.output();
+                                }
+                                Err(e) => {
+                                    let response =
+                                        jjagent::hooks::HookResponse::stop(e.to_string());
+                                    response.output();
+                                    return Err(e);
+                                }
+                            }
                         }
                     }
                 }

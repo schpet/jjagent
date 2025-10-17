@@ -18,6 +18,15 @@ use std::process::Command;
 
 use crate::session::{SessionId, format_precommit_message};
 
+/// Output structure for injecting additional context into Claude
+#[derive(Debug, Serialize)]
+pub struct HookSpecificOutput {
+    #[serde(rename = "hookEventName")]
+    pub hook_event_name: String,
+    #[serde(rename = "additionalContext")]
+    pub additional_context: String,
+}
+
 /// Response structure for Claude Code hooks to control execution
 #[derive(Debug, Serialize)]
 pub struct HookResponse {
@@ -25,6 +34,8 @@ pub struct HookResponse {
     pub continue_execution: bool,
     #[serde(rename = "stopReason", skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
+    #[serde(rename = "hookSpecificOutput", skip_serializing_if = "Option::is_none")]
+    pub hook_specific_output: Option<HookSpecificOutput>,
 }
 
 impl HookResponse {
@@ -33,6 +44,19 @@ impl HookResponse {
         Self {
             continue_execution: true,
             stop_reason: None,
+            hook_specific_output: None,
+        }
+    }
+
+    /// Create a response with additional context for Claude
+    pub fn with_context(hook_event_name: impl Into<String>, context: impl Into<String>) -> Self {
+        Self {
+            continue_execution: true,
+            stop_reason: None,
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: hook_event_name.into(),
+                additional_context: context.into(),
+            }),
         }
     }
 
@@ -41,6 +65,7 @@ impl HookResponse {
         Self {
             continue_execution: false,
             stop_reason: Some(reason.into()),
+            hook_specific_output: None,
         }
     }
 
@@ -58,6 +83,10 @@ pub struct HookInput {
     pub session_id: String,
     #[serde(default)]
     pub tool_name: Option<String>,
+    #[serde(default)]
+    pub hook_event_name: Option<String>,
+    #[serde(default)]
+    pub transcript_path: Option<String>,
 }
 
 impl HookInput {
@@ -301,5 +330,51 @@ pub fn handle_stop_hook(input: HookInput) -> Result<()> {
             eprintln!("jjagent: Warning - failed to release lock: {}", e);
             result
         }
+    }
+}
+
+/// Handle SessionStart hook - injects session ID into Claude's context
+/// This runs once when a new Claude session begins
+pub fn handle_session_start_hook(input: &HookInput) -> Result<HookResponse> {
+    let context_message = format!(
+        "System Note: The current session ID is {}. I must use this ID for session-specific tasks.",
+        input.session_id
+    );
+
+    Ok(HookResponse::with_context("SessionStart", context_message))
+}
+
+/// Handle UserPromptSubmit hook - re-injects session ID if it's been lost from context
+/// This runs before each user prompt, checking if the session ID is still in recent transcript
+pub fn handle_user_prompt_submit_hook(input: &HookInput) -> Result<HookResponse> {
+    // If no transcript path provided, just continue without injecting
+    let Some(transcript_path) = &input.transcript_path else {
+        return Ok(HookResponse::continue_execution());
+    };
+
+    // Read the last 20 lines of the transcript to check if session ID is present
+    let transcript_content =
+        std::fs::read_to_string(transcript_path).context("Failed to read transcript file")?;
+
+    let lines: Vec<&str> = transcript_content.lines().collect();
+    let recent_lines = if lines.len() > 20 {
+        &lines[lines.len() - 20..]
+    } else {
+        &lines[..]
+    };
+    let recent_transcript = recent_lines.join("\n");
+
+    // If session ID is not in recent transcript, re-inject it
+    if !recent_transcript.contains(&input.session_id) {
+        let context_message = format!(
+            "System Note: The current session ID is {}. I must use this ID for session-specific tasks.",
+            input.session_id
+        );
+        Ok(HookResponse::with_context(
+            "UserPromptSubmit",
+            context_message,
+        ))
+    } else {
+        Ok(HookResponse::continue_execution())
     }
 }
