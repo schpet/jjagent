@@ -73,6 +73,30 @@ cargo install --path .
    ```
 2. use claude code normally in a jj repo - jjagent runs automatically via hooks
 
+## plugin features
+
+the jjagent plugin provides additional commands and agents for working with session changes:
+
+**prerequisites:** you must have jjagent installed (see [installation](#installation)) before installing the plugin. the plugin just sets up hooks and provides convenience commands - the actual jjagent binary does the heavy lifting.
+
+### slash commands
+
+- `/jjagent:describe` - generate an llm-written commit description for the current session's change
+
+- `/jjagent:split` - split the current session into a new change part. useful when you want to logically separate work within a single claude session into distinct jj changes.
+
+### agents
+
+- `jjagent:describe` - background agent that generates commit descriptions without losing context in the main conversation. automatically called by the slash command.
+
+### hooks
+
+the plugin automatically configures these hooks:
+- `SessionStart` - injects session ID into claude's context at the start of each session to support slash commands
+- `UserPromptSubmit` - re-injects session ID if it's been lost from recent context (i.e. compact)
+- `PreToolUse` / `PostToolUse` - manages session changes around file edits (edit, write tools)
+- `Stop` - cleanup when claude session ends
+
 ## development
 
 Run tests:
