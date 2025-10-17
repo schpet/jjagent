@@ -58,6 +58,7 @@ You must follow these steps to create a proper commit message:
    - **Do NOT include any trailers** (Claude-session-id, etc.) - they are preserved automatically
    - Only include the subject line and body
    - Use a heredoc or proper quoting to preserve formatting
+   - Note: This is the Rust CLI tool command, not the slash command
 
 6. **Show the final change**
    - Run: `jj show "$(jjagent change-id <session-id>) -s` and show the user direct output formatted as a code block
