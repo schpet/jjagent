@@ -333,39 +333,39 @@ pub fn handle_stop_hook(input: HookInput) -> Result<()> {
     }
 }
 
-/// Handle SessionStart hook - injects session ID into Claude's context
-/// This runs once when a new Claude session begins
-pub fn handle_session_start_hook(input: &HookInput) -> Result<HookResponse> {
-    let context_message = format!(
-        "System Note: The current session ID is {}. I must use this ID for session-specific tasks.",
-        input.session_id
-    );
-
-    Ok(HookResponse::with_context("SessionStart", context_message))
-}
-
-/// Handle UserPromptSubmit hook - re-injects session ID if it's been lost from context
-/// This runs before each user prompt, checking if the session ID is still in recent transcript
+/// Handle UserPromptSubmit hook - injects session ID if it differs from the most recent one
+/// This runs before each user prompt, checking if the session ID has changed
 pub fn handle_user_prompt_submit_hook(input: &HookInput) -> Result<HookResponse> {
     // If no transcript path provided, just continue without injecting
     let Some(transcript_path) = &input.transcript_path else {
         return Ok(HookResponse::continue_execution());
     };
 
-    // Read the last 20 lines of the transcript to check if session ID is present
+    // Read the transcript to find the most recent session ID
     let transcript_content =
         std::fs::read_to_string(transcript_path).context("Failed to read transcript file")?;
 
-    let lines: Vec<&str> = transcript_content.lines().collect();
-    let recent_lines = if lines.len() > 20 {
-        &lines[lines.len() - 20..]
-    } else {
-        &lines[..]
-    };
-    let recent_transcript = recent_lines.join("\n");
+    // Search for the most recent "session ID is" pattern to find what the previous session was
+    let most_recent_session = transcript_content.lines().rev().find_map(|line| {
+        if let Some(pos) = line.find("session ID is ") {
+            let after_prefix = &line[pos + 13..]; // len("session ID is ") == 13
+            // Skip leading whitespace
+            let trimmed = after_prefix.trim_start();
+            // Extract the session ID - it can contain alphanumeric chars and hyphens
+            // Stop at the first non-UUID character (space, period, comma, etc.)
+            let end = trimmed
+                .chars()
+                .position(|c| !c.is_alphanumeric() && c != '-')
+                .unwrap_or(trimmed.len());
+            if end > 0 {
+                return Some(trimmed[..end].to_string());
+            }
+        }
+        None
+    });
 
-    // If session ID is not in recent transcript, re-inject it
-    if !recent_transcript.contains(&input.session_id) {
+    // If the session ID has changed (or wasn't found before), inject it
+    if most_recent_session.as_ref() != Some(&input.session_id) {
         let context_message = format!(
             "System Note: The current session ID is {}. I must use this ID for session-specific tasks.",
             input.session_id

@@ -1,16 +1,6 @@
 {
   "description": "jjagent hooks for tracking Claude Code sessions as jj changes",
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jjagent claude hooks SessionStart"
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [

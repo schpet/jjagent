@@ -28,30 +28,12 @@ fn test_hook_response_stop_does_not_include_null_reason() {
 
 #[test]
 fn test_hook_response_with_context() {
-    let response = HookResponse::with_context("SessionStart", "Test context message");
+    let response = HookResponse::with_context("UserPromptSubmit", "Test context message");
     let json = serde_json::to_string(&response).unwrap();
     assert_eq!(
         json,
-        r#"{"continue":true,"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Test context message"}}"#
+        r#"{"continue":true,"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"Test context message"}}"#
     );
-}
-
-#[test]
-fn test_session_start_hook() {
-    let input = HookInput {
-        session_id: "test-session-123".to_string(),
-        tool_name: None,
-        hook_event_name: Some("SessionStart".to_string()),
-        transcript_path: None,
-    };
-
-    let response = jjagent::hooks::handle_session_start_hook(&input).unwrap();
-    let json = serde_json::to_string(&response).unwrap();
-
-    // Verify the response contains the session ID
-    assert!(json.contains("test-session-123"));
-    assert!(json.contains("SessionStart"));
-    assert!(json.contains("hookSpecificOutput"));
 }
 
 #[test]
@@ -71,17 +53,16 @@ fn test_user_prompt_submit_hook_without_transcript() {
 }
 
 #[test]
-fn test_user_prompt_submit_hook_with_transcript_missing_session() {
-    // Create a temporary transcript file
+fn test_user_prompt_submit_hook_first_session() {
+    // Create a temporary transcript file with no previous session ID
     let temp_dir = tempfile::tempdir().unwrap();
     let transcript_path = temp_dir.path().join("transcript.txt");
     let mut file = std::fs::File::create(&transcript_path).unwrap();
     writeln!(file, "Some conversation").unwrap();
-    writeln!(file, "without the session ID").unwrap();
-    writeln!(file, "in recent lines").unwrap();
+    writeln!(file, "without any session ID marker").unwrap();
 
     let input = HookInput {
-        session_id: "test-session-789".to_string(),
+        session_id: "test-session-first".to_string(),
         tool_name: None,
         hook_event_name: Some("UserPromptSubmit".to_string()),
         transcript_path: Some(transcript_path.to_string_lossy().to_string()),
@@ -90,24 +71,24 @@ fn test_user_prompt_submit_hook_with_transcript_missing_session() {
     let response = jjagent::hooks::handle_user_prompt_submit_hook(&input).unwrap();
     let json = serde_json::to_string(&response).unwrap();
 
-    // Session ID not in transcript, should inject it
-    assert!(json.contains("test-session-789"));
+    // No previous session found, should inject it
+    assert!(json.contains("test-session-first"));
     assert!(json.contains("UserPromptSubmit"));
     assert!(json.contains("hookSpecificOutput"));
 }
 
 #[test]
-fn test_user_prompt_submit_hook_with_transcript_has_session() {
-    // Create a temporary transcript file
+fn test_user_prompt_submit_hook_same_session() {
+    // Create a temporary transcript file with the same session ID
     let temp_dir = tempfile::tempdir().unwrap();
     let transcript_path = temp_dir.path().join("transcript.txt");
     let mut file = std::fs::File::create(&transcript_path).unwrap();
     writeln!(file, "Some conversation").unwrap();
-    writeln!(file, "that includes test-session-999").unwrap();
-    writeln!(file, "in recent lines").unwrap();
+    writeln!(file, "System Note: The current session ID is 12345-abcde. I must use this ID for session-specific tasks.").unwrap();
+    writeln!(file, "More conversation").unwrap();
 
     let input = HookInput {
-        session_id: "test-session-999".to_string(),
+        session_id: "12345-abcde".to_string(),
         tool_name: None,
         hook_event_name: Some("UserPromptSubmit".to_string()),
         transcript_path: Some(transcript_path.to_string_lossy().to_string()),
@@ -116,6 +97,32 @@ fn test_user_prompt_submit_hook_with_transcript_has_session() {
     let response = jjagent::hooks::handle_user_prompt_submit_hook(&input).unwrap();
     let json = serde_json::to_string(&response).unwrap();
 
-    // Session ID is in transcript, should just continue
+    // Same session ID found, should just continue
     assert_eq!(json, r#"{"continue":true}"#);
+}
+
+#[test]
+fn test_user_prompt_submit_hook_different_session() {
+    // Create a temporary transcript file with a different session ID
+    let temp_dir = tempfile::tempdir().unwrap();
+    let transcript_path = temp_dir.path().join("transcript.txt");
+    let mut file = std::fs::File::create(&transcript_path).unwrap();
+    writeln!(file, "Some conversation").unwrap();
+    writeln!(file, "System Note: The current session ID is old-session-id. I must use this ID for session-specific tasks.").unwrap();
+    writeln!(file, "More conversation").unwrap();
+
+    let input = HookInput {
+        session_id: "new-session-id".to_string(),
+        tool_name: None,
+        hook_event_name: Some("UserPromptSubmit".to_string()),
+        transcript_path: Some(transcript_path.to_string_lossy().to_string()),
+    };
+
+    let response = jjagent::hooks::handle_user_prompt_submit_hook(&input).unwrap();
+    let json = serde_json::to_string(&response).unwrap();
+
+    // Different session ID, should inject the new one
+    assert!(json.contains("new-session-id"));
+    assert!(json.contains("UserPromptSubmit"));
+    assert!(json.contains("hookSpecificOutput"));
 }

@@ -59,9 +59,6 @@ enum HookCommands {
     /// Handle Stop hook
     #[command(name = "Stop")]
     Stop,
-    /// Handle SessionStart hook
-    #[command(name = "SessionStart")]
-    SessionStart,
     /// Handle UserPromptSubmit hook
     #[command(name = "UserPromptSubmit")]
     UserPromptSubmit,
@@ -103,27 +100,12 @@ fn run_command(cli: Cli) -> Result<()> {
                         HookCommands::PreToolUse => "PreToolUse",
                         HookCommands::PostToolUse => "PostToolUse",
                         HookCommands::Stop => "Stop",
-                        HookCommands::SessionStart => "SessionStart",
                         HookCommands::UserPromptSubmit => "UserPromptSubmit",
                     };
                     eprintln!("jjagent: {} hook called", hook_name);
 
-                    // SessionStart and UserPromptSubmit return HookResponse directly
+                    // Handle hooks that return HookResponse directly
                     match hook_cmd {
-                        HookCommands::SessionStart => {
-                            let input = jjagent::hooks::HookInput::from_stdin()?;
-                            match jjagent::hooks::handle_session_start_hook(&input) {
-                                Ok(response) => {
-                                    response.output();
-                                }
-                                Err(e) => {
-                                    let response =
-                                        jjagent::hooks::HookResponse::stop(e.to_string());
-                                    response.output();
-                                    return Err(e);
-                                }
-                            }
-                        }
                         HookCommands::UserPromptSubmit => {
                             let input = jjagent::hooks::HookInput::from_stdin()?;
                             match jjagent::hooks::handle_user_prompt_submit_hook(&input) {
