@@ -9,6 +9,7 @@
 - claude code plugin support for easier hook install
 - log errors to disk when logging is enabled
 - add `jjagent describe <claude-session-id> -m ...` command that preserves description trailers
+- add /jja-describe claude code slash command to add llm generated descripitons
 
 ## [0.2.6] - 2025-10-13
 
