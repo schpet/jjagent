@@ -1,0 +1,21 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  commit1
+
+Added regular file file1.txt:
+        1: content1
+○  jjagent: session split-si pt. 2
+
+Claude-session-id: split-sid-test-12345678
+
+○  uwc
+
+○  base
+
+○  jjagent: session split-si
+
+Claude-session-id: split-sid-test-12345678
+
+◆

@@ -1921,6 +1921,49 @@ fn test_split_change_not_ancestor() -> Result<()> {
 }
 
 #[test]
+fn test_split_change_with_session_id() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = jjagent::session::SessionId::from_full("split-sid-test-12345678");
+
+    // Create a session change
+    jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
+
+    // Create a commit on the session (will become the parent of @)
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "log",
+            "-r",
+            &format!("description(glob:\"*{}*\")", session_id.short()),
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()?;
+
+    let session_change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", &session_change_id])
+        .output()?;
+
+    std::fs::write(repo.path().join("file1.txt"), "content1")?;
+
+    // Split using the FULL SESSION ID instead of change ID
+    // This tests that session ID lookup works
+    jjagent::jj::split_change(session_id.full(), Some(repo.path()))?;
+
+    // Verify: @ should have a new session part inserted between session and commit1
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("split_change_with_session_id", snapshot);
+
+    Ok(())
+}
+
+#[test]
 fn test_split_change_with_session() -> Result<()> {
     let repo = TestRepo::new_with_uwc()?;
     let session_id = jjagent::session::SessionId::from_full("split-test-12345678");

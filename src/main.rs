@@ -17,8 +17,8 @@ enum Commands {
     Claude(ClaudeCommands),
     /// Split a change into a new session part before @
     Split {
-        /// The jj reference to split (e.g., a change ID or revset)
-        #[arg(value_name = "REF")]
+        /// The Claude session ID or jj reference to split (e.g., session ID, change ID, or revset)
+        #[arg(value_name = "SESSION_ID_OR_REF")]
         reference: String,
     },
     /// Get the jj change ID for a Claude session

@@ -865,9 +865,23 @@ pub fn handle_squash_conflicts(session_id: &SessionId, part: usize) -> Result<()
 }
 
 /// Split a change by inserting a new change before @ (working copy)
+/// The reference can be either a Claude session ID or a jj reference (change ID, revset, etc.)
+/// Session IDs are looked up first before treating as a jj ref
 /// The reference must be an ancestor of @
 /// If the reference has a session ID, creates a new session part
 pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
+    // First, try to interpret reference as a Claude session ID
+    let actual_reference = match find_session_change_anywhere_in(reference, repo_path)? {
+        Some(commit) => {
+            // Found a session by ID, use its change_id
+            commit.change_id
+        }
+        None => {
+            // Not a session ID, treat as a jj reference
+            reference.to_string()
+        }
+    };
+
     // Check if reference is an ancestor of @ and get its session ID
     let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
 
@@ -879,7 +893,7 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         .args([
             "log",
             "-r",
-            &format!("{}..@", reference),
+            &format!("{}..@", actual_reference),
             "--no-graph",
             "-T",
             template,
@@ -906,7 +920,7 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         cmd.current_dir(path);
     }
     let output = cmd
-        .args(["log", "-r", reference, "--no-graph", "-T", template])
+        .args(["log", "-r", &actual_reference, "--no-graph", "-T", template])
         .output()
         .context("Failed to get reference commit info")?;
 
@@ -940,7 +954,7 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         .args([
             "new",
             "--after",
-            reference,
+            &actual_reference,
             "--insert-before",
             "@",
             "--no-edit",
