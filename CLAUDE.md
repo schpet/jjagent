@@ -214,3 +214,23 @@ SUBCOMMANDS
 
        jj-workspace(1)
               Commands for working with workspaces
+
+### jj commit trailers
+
+Commit trailers
+
+You can configure automatic addition of one or more trailers to commit descriptions using the commit_trailers template.
+
+Each line of the template is an individual trailer, usually in Key: Value format.
+
+Trailers defined in this template are deduplicated with the existing description: if the entire line of a trailer is already present, it will not be added again. To deduplicate based only on the trailer key, use the trailers.contains_key(key) method within the template.
+
+```
+[templates]
+commit_trailers = '''
+format_signed_off_by_trailer(self)
+++ if(!trailers.contains_key("Change-Id"), format_gerrit_change_id_trailer(self))'''
+Some ready-to-use trailer templates are available for frequently used trailers:
+```
+
+Existing trailers are also accessible via commit.trailers().

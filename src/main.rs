@@ -28,6 +28,15 @@ enum Commands {
         #[arg(value_name = "SESSION_ID")]
         session_id: String,
     },
+    /// Update the description of a session's commit while preserving trailers
+    Describe {
+        /// The Claude session ID
+        #[arg(value_name = "SESSION_ID")]
+        session_id: String,
+        /// The new commit message (without trailers)
+        #[arg(short, long, value_name = "MESSAGE")]
+        message: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -178,6 +187,12 @@ fn run_command(cli: Cli) -> Result<()> {
                     anyhow::bail!("No change found for session ID: {}", session_id);
                 }
             }
+        }
+        Commands::Describe {
+            session_id,
+            message,
+        } => {
+            jjagent::describe_session_change(&session_id, &message)?;
         }
     }
 

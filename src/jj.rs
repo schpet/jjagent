@@ -499,6 +499,95 @@ pub fn get_current_commit_session_id() -> Result<Option<String>> {
     get_current_commit_session_id_in(None)
 }
 
+/// Get all trailers from a specific commit
+/// Returns a vector of formatted trailer lines (e.g., "Key: Value")
+/// If repo_path is provided, runs jj in that directory
+pub fn get_commit_trailers_in(revset: &str, repo_path: Option<&Path>) -> Result<Vec<String>> {
+    let template = r#"trailers.map(|t| t.key() ++ ": " ++ t.value()).join("\n")"#;
+
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            revset,
+            "-T",
+            template,
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
+        .output()
+        .context("Failed to execute jj log to get trailers")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj log failed while getting trailers: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let trailers_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if trailers_str.is_empty() {
+        Ok(Vec::new())
+    } else {
+        Ok(trailers_str.lines().map(|s| s.to_string()).collect())
+    }
+}
+
+/// Get all trailers from a specific commit in the current directory
+pub fn get_commit_trailers(revset: &str) -> Result<Vec<String>> {
+    get_commit_trailers_in(revset, None)
+}
+
+/// Update a commit's description while preserving its trailers
+/// The new_message should not include trailers - they will be automatically appended
+/// If repo_path is provided, runs jj in that directory
+pub fn update_description_preserving_trailers_in(
+    revset: &str,
+    new_message: &str,
+    repo_path: Option<&Path>,
+) -> Result<()> {
+    // Get existing trailers
+    let trailers = get_commit_trailers_in(revset, repo_path)?;
+
+    // Build the complete message: new message + blank line + trailers
+    let complete_message = if trailers.is_empty() {
+        new_message.to_string()
+    } else {
+        format!("{}\n\n{}", new_message.trim(), trailers.join("\n"))
+    };
+
+    // Update the commit description
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args(["describe", "-r", revset, "-m", &complete_message])
+        .output()
+        .context("Failed to execute jj describe")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj describe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+/// Update a commit's description while preserving its trailers in the current directory
+pub fn update_description_preserving_trailers(revset: &str, new_message: &str) -> Result<()> {
+    update_description_preserving_trailers_in(revset, new_message, None)
+}
+
 /// Attempt to squash precommit into session change (happy path)
 /// Returns true if new conflicts were introduced, false otherwise
 /// If repo_path is provided, runs jj in that directory

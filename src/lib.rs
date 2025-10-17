@@ -71,3 +71,17 @@ pub fn format_claude_settings() -> Result<String> {
 pub fn split_change(reference: &str) -> Result<()> {
     jj::split_change(reference, None)
 }
+
+/// Update a session change's description while preserving trailers
+/// Looks up the change by session ID and updates its description with the new message
+/// while automatically preserving all existing trailers
+pub fn describe_session_change(session_id: &str, new_message: &str) -> Result<()> {
+    // Find the change by session ID
+    let commit =
+        jj::find_session_change_anywhere(session_id)?.context("No change found for session ID")?;
+
+    // Update the description while preserving trailers
+    jj::update_description_preserving_trailers(&commit.change_id, new_message)?;
+
+    Ok(())
+}
