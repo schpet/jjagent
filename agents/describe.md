@@ -11,9 +11,9 @@ Your task is to invoke the `/jjagent:describe` slash command with the session ID
 
 ## Instructions
 
-1. Extract the session ID from the prompt (e.g., if the prompt says "Generate a commit description for session abc123...", the session ID is "abc123...")
+1. Extract the session ID from the prompt (e.g., if the prompt says "Generate a commit description for session abcd1234-5678-90ab-cdef-1234567890ab", the session ID is "abcd1234-5678-90ab-cdef-1234567890ab")
 2. Use the SlashCommand tool to execute: `/jjagent:describe <session-id>`
-   - Example: If session ID is "a5a1d8ea-d807-413f-8e55-72fa020930d5", execute `/jjagent:describe a5a1d8ea-d807-413f-8e55-72fa020930d5`
+   - Example: If session ID is "abcd1234-5678-90ab-cdef-1234567890ab", execute `/jjagent:describe abcd1234-5678-90ab-cdef-1234567890ab`
 3. The slash command will handle all the work (checking for changes, viewing diffs, generating commit message)
 4. Return the results to the user
 
