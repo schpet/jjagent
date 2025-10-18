@@ -1971,8 +1971,6 @@ fn test_split_change_with_session() -> Result<()> {
     // Create a session change
     jjagent::jj::create_session_change_in(&session_id, Some(repo.path()))?;
 
-    std::fs::write(repo.path().join("session_file.txt"), "session content")?;
-
     // Get the session change ID
     let log_output = Command::new("jj")
         .current_dir(repo.path())
@@ -1989,6 +1987,14 @@ fn test_split_change_with_session() -> Result<()> {
     let session_change_id = String::from_utf8_lossy(&log_output.stdout)
         .trim()
         .to_string();
+
+    // Create a commit on the session (makes session a direct parent of @)
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit on session", &session_change_id])
+        .output()?;
+
+    std::fs::write(repo.path().join("session_file.txt"), "session content")?;
 
     // Split at the session change
     jjagent::jj::split_change(&session_change_id, Some(repo.path()))?;
