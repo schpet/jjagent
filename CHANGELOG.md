@@ -2,15 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-10-20
+
 ### Added
 
-- prevent claude from making changes when @ is on a session change (has Claude-session-id trailer)
-- split command
-- claude code plugin support for easier hook install
+- setup a claude code plugin for easier setup
+- add `jjagent split <SESSION_ID_OR_REF>` command to split sessions into new changes
+- add `/jjagent:describe` claude code slash command to describe a session
+- add `/jjagent:split` claude code slash command to split a session from claude code
+
+### Fixed
+
 - log errors to disk when logging is enabled
-- add `jjagent describe <claude-session-id> -m ...` command that preserves description trailers
-- add /jja-describe claude code slash command to add llm generated descripitons
-- add /jja-split claude code slash command to split a session into a new change part
+
+### Changed
+
+- prevent claude from making changes when @ is on a session change as an invariant style check
 
 ## [0.2.6] - 2025-10-13
 
@@ -79,7 +86,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/schpet/jjagent/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/schpet/jjagent/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/schpet/jjagent/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/schpet/jjagent/compare/v0.2.3...v0.2.4
