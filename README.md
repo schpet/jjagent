@@ -85,11 +85,9 @@ the jjagent plugin provides additional commands and agents for working with sess
 
 - `/jjagent:split` - split the current session into a new change part. useful when you want to logically separate work within a single claude session into distinct jj changes.
 
-### agents
-
-- `jjagent:describe` - background agent that generates commit descriptions without losing context in the main conversation. automatically called by the slash command.
-
 ### hooks
+
+_fyi: these are setup by the plugin automatically_
 
 the plugin automatically configures these hooks:
 - `SessionStart` - injects session ID into claude's context at the start of each session to support slash commands
