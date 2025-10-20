@@ -914,37 +914,6 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         anyhow::bail!("Reference '{}' is not an ancestor of @", reference);
     }
 
-    // Check if reference is a direct parent of @
-    let mut cmd = Command::new("jj");
-    if let Some(path) = repo_path {
-        cmd.current_dir(path);
-    }
-    let output = cmd
-        .args([
-            "log",
-            "-r",
-            &format!("{} & parents(@)", actual_reference),
-            "--no-graph",
-            "-T",
-            "change_id",
-        ])
-        .output()
-        .context("Failed to check if reference is parent of @")?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "Failed to check parent relationship: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    let parent_check = String::from_utf8_lossy(&output.stdout);
-    if parent_check.trim().is_empty() {
-        anyhow::bail!(
-            "Reference is not a direct parent of @. Use split on a reference that is @ parent."
-        );
-    }
-
     // Get the session ID from the reference commit
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
