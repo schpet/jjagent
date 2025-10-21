@@ -74,20 +74,19 @@ pub fn has_conflicts() -> Result<bool> {
     has_conflicts_in(None)
 }
 
-/// Represents a jj commit with its change ID and description
-/// Note: A commit may have multiple Claude-session-id trailers, but since we filter
-/// using jj's template language, we only return commits that match the requested session ID
+/// Represents a jj commit with its change ID
+/// Note: We only store the change_id since that's all we need.
+/// Filtering by session ID is done via jj's template language using trailers.any()
 #[derive(Debug, Clone, PartialEq)]
 pub struct Commit {
     pub change_id: String,
-    pub description: String,
 }
 
 /// Get descendants of the current working copy (@)
 /// Returns commits ordered from closest to farthest
 /// If repo_path is provided, runs jj in that directory
 pub fn get_descendants_in(repo_path: Option<&Path>) -> Result<Vec<Commit>> {
-    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n---\n""#;
+    let template = r#"change_id.short() ++ "\n""#;
 
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
@@ -131,7 +130,7 @@ pub fn find_session_change_in(
     // Use revset to filter candidates and template to check exact match
     let revset = format!(r#"(descendants(@) ~ @) & description("{}")"#, session_id);
     let template = format!(
-        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n" ++ description ++ "\n---\n", "")"#,
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n", "")"#,
         session_id
     );
 
@@ -180,7 +179,7 @@ pub fn find_session_change_anywhere_in(
     // Use revset to filter candidates and template to check exact match
     let revset = format!(r#"all() & description("{}")"#, session_id);
     let template = format!(
-        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id ++ "\n" ++ description ++ "\n---\n", "")"#,
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id ++ "\n", "")"#,
         session_id
     );
 
@@ -225,7 +224,7 @@ pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Res
     // Use revset to filter candidates and template to check exact match
     let revset = format!(r#"all() & description("{}")"#, session_id);
     let template = format!(
-        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n" ++ description ++ "\n---\n", "")"#,
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n", "")"#,
         session_id
     );
 
@@ -978,38 +977,16 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
 }
 
 /// Parse commits from jj log output
-/// Format: change_id\ndescription\n---\n
+/// Format: change_id\n per commit
 fn parse_commits(output: &str) -> Result<Vec<Commit>> {
-    let mut commits = Vec::new();
-    let entries: Vec<&str> = output.split("---\n").collect();
-
-    for entry in entries {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-
-        let lines: Vec<&str> = entry.lines().collect();
-        if lines.is_empty() {
-            continue;
-        }
-
-        let change_id = lines[0].trim().to_string();
-
-        // Everything after the first line is the description
-        let description = if lines.len() > 1 {
-            lines[1..].join("\n")
-        } else {
-            String::new()
-        };
-
-        commits.push(Commit {
-            change_id,
-            description,
-        });
-    }
-
-    Ok(commits)
+    Ok(output
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .map(|change_id| Commit {
+            change_id: change_id.to_string(),
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -1018,53 +995,20 @@ mod tests {
 
     #[test]
     fn test_parse_commits_single() {
-        let output = r#"abcd1234
-commit message
----
-"#;
+        let output = "abcd1234\n";
         let commits = parse_commits(output).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(commits[0].description, "commit message");
-    }
-
-    #[test]
-    fn test_parse_commits_with_trailer() {
-        let output = r#"abcd1234
-commit message
-
-Claude-session-id: test-session-123
----
-"#;
-        let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 1);
-        assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(
-            commits[0].description,
-            "commit message\n\nClaude-session-id: test-session-123"
-        );
     }
 
     #[test]
     fn test_parse_commits_multiple() {
-        let output = r#"abcd1234
-first commit
----
-efgh5678
-second commit
-
-Claude-session-id: session-2
----
-"#;
+        let output = "abcd1234\nefgh5678\nijkl9012\n";
         let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 2);
+        assert_eq!(commits.len(), 3);
         assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(commits[0].description, "first commit");
         assert_eq!(commits[1].change_id, "efgh5678");
-        assert_eq!(
-            commits[1].description,
-            "second commit\n\nClaude-session-id: session-2"
-        );
+        assert_eq!(commits[2].change_id, "ijkl9012");
     }
 
     #[test]
@@ -1075,21 +1019,11 @@ Claude-session-id: session-2
     }
 
     #[test]
-    fn test_parse_commits_with_multiple_trailers() {
-        let output = r#"abcd1234
-jjagent: session 11af7c0e
-
-Claude-session-id: 11af7c0e-6398-4802-bd0c-a6a68e9b73f9
-Claude-session-id: fd4d8b72-ddb2-47c4-bf73-92a7b835d4c1
-Claude-session-id: 43c59705-c8ec-4d21-98b1-e0f1d314eeeb
----
-"#;
+    fn test_parse_commits_with_whitespace() {
+        let output = "  abcd1234  \n\n  efgh5678  \n";
         let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 1);
+        assert_eq!(commits.len(), 2);
         assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(
-            commits[0].description,
-            "jjagent: session 11af7c0e\n\nClaude-session-id: 11af7c0e-6398-4802-bd0c-a6a68e9b73f9\nClaude-session-id: fd4d8b72-ddb2-47c4-bf73-92a7b835d4c1\nClaude-session-id: 43c59705-c8ec-4d21-98b1-e0f1d314eeeb"
-        );
+        assert_eq!(commits[1].change_id, "efgh5678");
     }
 }
