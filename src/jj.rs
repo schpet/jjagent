@@ -74,19 +74,20 @@ pub fn has_conflicts() -> Result<bool> {
     has_conflicts_in(None)
 }
 
-/// Represents a jj commit with its change ID, description, and optional session ID
+/// Represents a jj commit with its change ID and description
+/// Note: A commit may have multiple Claude-session-id trailers, but since we filter
+/// using jj's template language, we only return commits that match the requested session ID
 #[derive(Debug, Clone, PartialEq)]
 pub struct Commit {
     pub change_id: String,
     pub description: String,
-    pub session_id: Option<String>,
 }
 
 /// Get descendants of the current working copy (@)
 /// Returns commits ordered from closest to farthest
 /// If repo_path is provided, runs jj in that directory
 pub fn get_descendants_in(repo_path: Option<&Path>) -> Result<Vec<Commit>> {
-    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
+    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n---\n""#;
 
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
@@ -127,18 +128,40 @@ pub fn find_session_change_in(
     session_id: &str,
     repo_path: Option<&Path>,
 ) -> Result<Option<Commit>> {
-    let descendants = get_descendants_in(repo_path)?;
+    // Use revset to filter candidates and template to check exact match
+    let revset = format!(r#"(descendants(@) ~ @) & description("{}")"#, session_id);
+    let template = format!(
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n" ++ description ++ "\n---\n", "")"#,
+        session_id
+    );
 
-    // Descendants are ordered from closest to farthest
-    for commit in descendants {
-        if let Some(ref commit_session_id) = commit.session_id
-            && commit_session_id == session_id
-        {
-            return Ok(Some(commit));
-        }
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
     }
 
-    Ok(None)
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            &revset,
+            "-T",
+            &template,
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
+        .output()
+        .context("Failed to execute jj log")?;
+
+    if !output.status.success() {
+        anyhow::bail!("jj log failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let commits = parse_commits(&stdout)?;
+
+    // Return the first match (closest descendant)
+    Ok(commits.into_iter().next())
 }
 
 /// Find the closest descendant commit with the given session ID in the current directory
@@ -154,7 +177,12 @@ pub fn find_session_change_anywhere_in(
     session_id: &str,
     repo_path: Option<&Path>,
 ) -> Result<Option<Commit>> {
-    let template = r#"change_id ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
+    // Use revset to filter candidates and template to check exact match
+    let revset = format!(r#"all() & description("{}")"#, session_id);
+    let template = format!(
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id ++ "\n" ++ description ++ "\n---\n", "")"#,
+        session_id
+    );
 
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
@@ -165,9 +193,9 @@ pub fn find_session_change_anywhere_in(
         .args([
             "log",
             "-r",
-            "all()",
+            &revset,
             "-T",
-            template,
+            &template,
             "--no-graph",
             "--ignore-working-copy",
         ])
@@ -181,16 +209,8 @@ pub fn find_session_change_anywhere_in(
     let stdout = String::from_utf8_lossy(&output.stdout);
     let commits = parse_commits(&stdout)?;
 
-    // Find first commit with matching session ID
-    for commit in commits {
-        if let Some(ref commit_session_id) = commit.session_id
-            && commit_session_id == session_id
-        {
-            return Ok(Some(commit));
-        }
-    }
-
-    Ok(None)
+    // Return the first match
+    Ok(commits.into_iter().next())
 }
 
 /// Find any commit with the given session ID in the current directory
@@ -202,7 +222,12 @@ pub fn find_session_change_anywhere(session_id: &str) -> Result<Option<Commit>> 
 /// This is used to determine the part number for conflict handling
 /// If repo_path is provided, runs jj in that directory
 pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Result<usize> {
-    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
+    // Use revset to filter candidates and template to check exact match
+    let revset = format!(r#"all() & description("{}")"#, session_id);
+    let template = format!(
+        r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n" ++ description ++ "\n---\n", "")"#,
+        session_id
+    );
 
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
@@ -213,9 +238,9 @@ pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Res
         .args([
             "log",
             "-r",
-            "all()",
+            &revset,
             "-T",
-            template,
+            &template,
             "--no-graph",
             "--ignore-working-copy",
         ])
@@ -229,19 +254,7 @@ pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Res
     let stdout = String::from_utf8_lossy(&output.stdout);
     let commits = parse_commits(&stdout)?;
 
-    // Count commits with matching session ID
-    let count = commits
-        .iter()
-        .filter(|c| {
-            if let Some(ref commit_session_id) = c.session_id {
-                commit_session_id == session_id
-            } else {
-                false
-            }
-        })
-        .count();
-
-    Ok(count)
+    Ok(commits.len())
 }
 
 /// Count how many commits exist with the given session ID in the current directory
@@ -882,9 +895,7 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         }
     };
 
-    // Check if reference is an ancestor of @ and get its session ID
-    let template = r#"change_id.short() ++ "\n" ++ description ++ "\n" ++ trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("") ++ "\n---\n""#;
-
+    // Check if reference is an ancestor of @
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
         cmd.current_dir(path);
@@ -896,7 +907,7 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
             &format!("{}..@", actual_reference),
             "--no-graph",
             "-T",
-            template,
+            "change_id.short()",
         ])
         .output()
         .context("Failed to check if reference is an ancestor")?;
@@ -914,7 +925,10 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         anyhow::bail!("Reference '{}' is not an ancestor of @", reference);
     }
 
-    // Get the session ID from the reference commit
+    // Get the session ID from the reference commit using trailers
+    // We extract the first Claude-session-id trailer value
+    let template =
+        r#"trailers.map(|t| if(t.key() == "Claude-session-id", t.value(), "")).join("\n")"#;
     let mut cmd = Command::new("jj");
     if let Some(path) = repo_path {
         cmd.current_dir(path);
@@ -931,13 +945,11 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
         );
     }
 
-    let ref_output = String::from_utf8_lossy(&output.stdout);
-    let ref_commits = parse_commits(&ref_output)?;
-
-    let session_id = ref_commits
-        .first()
-        .and_then(|c| c.session_id.as_ref())
-        .context("Reference commit does not have a session ID")?;
+    let session_id_output = String::from_utf8_lossy(&output.stdout);
+    let session_id = session_id_output
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .context("Reference commit does not have a Claude-session-id trailer")?;
 
     let session_id = SessionId::from_full(session_id);
 
@@ -966,13 +978,13 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
 }
 
 /// Parse commits from jj log output
-/// Format: change_id\ndescription\nsession_id\n---\n
+/// Format: change_id\ndescription\n---\n
 fn parse_commits(output: &str) -> Result<Vec<Commit>> {
     let mut commits = Vec::new();
     let entries: Vec<&str> = output.split("---\n").collect();
 
     for entry in entries {
-        // Don't trim here - we need to preserve the structure
+        let entry = entry.trim();
         if entry.is_empty() {
             continue;
         }
@@ -984,29 +996,16 @@ fn parse_commits(output: &str) -> Result<Vec<Commit>> {
 
         let change_id = lines[0].trim().to_string();
 
-        // Last line is always the session_id (may be empty)
-        let session_id_line = lines.last().context("Expected at least one line")?.trim();
-        let session_id = if session_id_line.is_empty() {
-            None
+        // Everything after the first line is the description
+        let description = if lines.len() > 1 {
+            lines[1..].join("\n")
         } else {
-            Some(session_id_line.to_string())
-        };
-
-        // Everything between first and last line is the description
-        let description = if lines.len() > 2 {
-            lines[1..lines.len() - 1].join("\n")
-        } else if lines.len() == 2 {
-            // Only change_id and session_id, no description
-            String::new()
-        } else {
-            // Only change_id, this shouldn't happen with our template
             String::new()
         };
 
         commits.push(Commit {
             change_id,
             description,
-            session_id,
         });
     }
 
@@ -1021,14 +1020,12 @@ mod tests {
     fn test_parse_commits_single() {
         let output = r#"abcd1234
 commit message
-
 ---
 "#;
         let commits = parse_commits(output).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].change_id, "abcd1234");
         assert_eq!(commits[0].description, "commit message");
-        assert_eq!(commits[0].session_id, None);
     }
 
     #[test]
@@ -1037,7 +1034,6 @@ commit message
 commit message
 
 Claude-session-id: test-session-123
-test-session-123
 ---
 "#;
         let commits = parse_commits(output).unwrap();
@@ -1047,33 +1043,28 @@ test-session-123
             commits[0].description,
             "commit message\n\nClaude-session-id: test-session-123"
         );
-        assert_eq!(commits[0].session_id, Some("test-session-123".to_string()));
     }
 
     #[test]
     fn test_parse_commits_multiple() {
         let output = r#"abcd1234
 first commit
-
 ---
 efgh5678
 second commit
 
 Claude-session-id: session-2
-session-2
 ---
 "#;
         let commits = parse_commits(output).unwrap();
         assert_eq!(commits.len(), 2);
         assert_eq!(commits[0].change_id, "abcd1234");
         assert_eq!(commits[0].description, "first commit");
-        assert_eq!(commits[0].session_id, None);
         assert_eq!(commits[1].change_id, "efgh5678");
         assert_eq!(
             commits[1].description,
             "second commit\n\nClaude-session-id: session-2"
         );
-        assert_eq!(commits[1].session_id, Some("session-2".to_string()));
     }
 
     #[test]
@@ -1084,25 +1075,21 @@ session-2
     }
 
     #[test]
-    fn test_session_id_field() {
-        let commit = Commit {
-            change_id: "test123".to_string(),
-            description: "jjagent: session abcd1234\n\nClaude-session-id: test-session-id"
-                .to_string(),
-            session_id: Some("test-session-id".to_string()),
-        };
+    fn test_parse_commits_with_multiple_trailers() {
+        let output = r#"abcd1234
+jjagent: session 11af7c0e
 
-        assert_eq!(commit.session_id, Some("test-session-id".to_string()));
-    }
-
-    #[test]
-    fn test_session_id_none() {
-        let commit = Commit {
-            change_id: "test123".to_string(),
-            description: "Regular commit".to_string(),
-            session_id: None,
-        };
-
-        assert_eq!(commit.session_id, None);
+Claude-session-id: 11af7c0e-6398-4802-bd0c-a6a68e9b73f9
+Claude-session-id: fd4d8b72-ddb2-47c4-bf73-92a7b835d4c1
+Claude-session-id: 43c59705-c8ec-4d21-98b1-e0f1d314eeeb
+---
+"#;
+        let commits = parse_commits(output).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].change_id, "abcd1234");
+        assert_eq!(
+            commits[0].description,
+            "jjagent: session 11af7c0e\n\nClaude-session-id: 11af7c0e-6398-4802-bd0c-a6a68e9b73f9\nClaude-session-id: fd4d8b72-ddb2-47c4-bf73-92a7b835d4c1\nClaude-session-id: 43c59705-c8ec-4d21-98b1-e0f1d314eeeb"
+        );
     }
 }

@@ -229,3 +229,78 @@ fn test_change_id_command_finds_in_history() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_change_id_command_multiple_trailers_same_commit() -> Result<()> {
+    let repo = TestRepo::new()?;
+    let session_id_1 = "11af7c0e-6398-4802-bd0c-a6a68e9b73f9";
+    let session_id_2 = "fd4d8b72-ddb2-47c4-bf73-92a7b835d4c1";
+    let session_id_3 = "43c59705-c8ec-4d21-98b1-e0f1d314eeeb";
+
+    // Create a commit with multiple Claude-session-id trailers
+    let message_with_multiple_trailers = format!(
+        "jjagent: session 11af7c0e\n\nClaude-session-id: {}\nClaude-session-id: {}\nClaude-session-id: {}",
+        session_id_1, session_id_2, session_id_3
+    );
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", &message_with_multiple_trailers])
+        .output()?;
+
+    // Get the change ID that was created
+    let log_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["log", "-r", "@", "-T", "change_id", "--no-graph"])
+        .output()?;
+
+    let expected_change_id = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
+
+    // Test that we can find the commit using the second session ID
+    let output = Command::new(env!("CARGO_BIN_EXE_jjagent"))
+        .current_dir(repo.path())
+        .env_remove("JJAGENT_DISABLE")
+        .args(["change-id", session_id_2])
+        .output()?;
+
+    assert!(
+        output.status.success(),
+        "change-id command should find commit with multiple trailers using second session ID, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let actual_change_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(
+        actual_change_id, expected_change_id,
+        "change-id command should return the correct change ID when searching for session ID in middle of multiple trailers"
+    );
+
+    // Also test with the first session ID
+    let output_first = Command::new(env!("CARGO_BIN_EXE_jjagent"))
+        .current_dir(repo.path())
+        .env_remove("JJAGENT_DISABLE")
+        .args(["change-id", session_id_1])
+        .output()?;
+
+    assert!(
+        output_first.status.success(),
+        "change-id command should find commit with first session ID, stderr: {}",
+        String::from_utf8_lossy(&output_first.stderr)
+    );
+
+    // And test with the third session ID
+    let output_third = Command::new(env!("CARGO_BIN_EXE_jjagent"))
+        .current_dir(repo.path())
+        .env_remove("JJAGENT_DISABLE")
+        .args(["change-id", session_id_3])
+        .output()?;
+
+    assert!(
+        output_third.status.success(),
+        "change-id command should find commit with third session ID, stderr: {}",
+        String::from_utf8_lossy(&output_third.stderr)
+    );
+
+    Ok(())
+}
