@@ -246,18 +246,17 @@ fn finalize_precommit(session_id: SessionId) -> Result<()> {
     }
 
     // Find the session change (either existing or just created)
-    let session_change = crate::jj::find_session_change_anywhere(session_id.full())?
+    let session_change_id = crate::jj::find_session_change_anywhere(session_id.full())?
         .context("Session change should exist")?;
 
     // Get change IDs
     // @ is currently at precommit (from pretool hook)
     let precommit_id = crate::jj::get_change_id("@")?;
     let uwc_id = crate::jj::get_change_id("@-")?;
-    let session_id_str = session_change.change_id;
 
     // Attempt to squash precommit into session
     let new_conflicts =
-        crate::jj::squash_precommit_into_session(&precommit_id, &session_id_str, &uwc_id)?;
+        crate::jj::squash_precommit_into_session(&precommit_id, &session_change_id, &uwc_id)?;
 
     // If conflicts were introduced, handle them
     if new_conflicts {

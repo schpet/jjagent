@@ -747,15 +747,14 @@ fn test_squash_happy_path() -> Result<()> {
 
     // Get uwc and session change IDs
     let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
-    let session_change =
+    let session_change_id =
         jjagent::jj::find_session_change_anywhere_in("squash-test-12345678", Some(repo.path()))?
             .expect("Session change should exist");
-    let session_id_str = session_change.change_id;
 
     // Attempt squash (should succeed without introducing conflicts)
     let new_conflicts = jjagent::jj::squash_precommit_into_session_in(
         &precommit_id,
-        &session_id_str,
+        &session_change_id,
         &uwc_id,
         Some(repo.path()),
     )?;
@@ -801,15 +800,14 @@ fn test_squash_with_changes() -> Result<()> {
 
     // Get uwc and session change IDs
     let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
-    let session_change =
+    let session_change_id =
         jjagent::jj::find_session_change_anywhere_in("squash-changes-12345678", Some(repo.path()))?
             .expect("Session change should exist");
-    let session_id_str = session_change.change_id;
 
     // Attempt squash
     let new_conflicts = jjagent::jj::squash_precommit_into_session_in(
         &precommit_id,
-        &session_id_str,
+        &session_change_id,
         &uwc_id,
         Some(repo.path()),
     )?;
@@ -855,15 +853,14 @@ fn test_handle_squash_conflicts() -> Result<()> {
 
     // Get uwc and session change IDs
     let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
-    let session_change =
+    let session_change_id =
         jjagent::jj::find_session_change_anywhere_in("conflict-test-12345678", Some(repo.path()))?
             .expect("Session change should exist");
-    let session_id_str = session_change.change_id;
 
     // Attempt squash (should introduce conflicts due to same file modification)
     let _new_conflicts = jjagent::jj::squash_precommit_into_session_in(
         &precommit_id,
-        &session_id_str,
+        &session_change_id,
         &uwc_id,
         Some(repo.path()),
     )?;
@@ -913,15 +910,14 @@ fn test_conflict_path_multiple_parts() -> Result<()> {
 
     // Get uwc and session change IDs
     let uwc_id = jjagent::jj::get_change_id_in("@-", Some(repo.path()))?;
-    let session_change =
+    let session_change_id =
         jjagent::jj::find_session_change_anywhere_in("multipart-test-12345678", Some(repo.path()))?
             .expect("Session change should exist");
-    let session_id_str = session_change.change_id;
 
     // Attempt squash
     jjagent::jj::squash_precommit_into_session_in(
         &precommit_id,
-        &session_id_str,
+        &session_change_id,
         &uwc_id,
         Some(repo.path()),
     )?;
@@ -1788,13 +1784,13 @@ fn test_pretool_hook_fails_on_session_change() -> Result<()> {
     jjagent::jj::create_session_change_in(&session_id_struct, Some(repo.path()))?;
 
     // Find the session change and edit to it
-    let session_change =
+    let session_change_id =
         jjagent::jj::find_session_change_anywhere_in(session_id, Some(repo.path()))?
             .context("Session change should exist")?;
 
     let edit_output = Command::new("jj")
         .current_dir(repo.path())
-        .args(["edit", &session_change.change_id])
+        .args(["edit", &session_change_id])
         .output()?;
 
     if !edit_output.status.success() {

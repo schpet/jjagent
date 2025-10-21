@@ -77,11 +77,11 @@ pub fn split_change(reference: &str) -> Result<()> {
 /// while automatically preserving all existing trailers
 pub fn describe_session_change(session_id: &str, new_message: &str) -> Result<()> {
     // Find the change by session ID
-    let commit =
+    let change_id =
         jj::find_session_change_anywhere(session_id)?.context("No change found for session ID")?;
 
     // Update the description while preserving trailers
-    jj::update_description_preserving_trailers(&commit.change_id, new_message)?;
+    jj::update_description_preserving_trailers(&change_id, new_message)?;
 
     Ok(())
 }

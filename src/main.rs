@@ -162,8 +162,8 @@ fn run_command(cli: Cli) -> Result<()> {
         }
         Commands::ChangeId { session_id } => {
             match jjagent::jj::find_session_change_anywhere(&session_id)? {
-                Some(commit) => {
-                    println!("{}", commit.change_id);
+                Some(change_id) => {
+                    println!("{}", change_id);
                 }
                 None => {
                     anyhow::bail!("No change found for session ID: {}", session_id);

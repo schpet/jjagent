@@ -27,8 +27,31 @@ pub fn is_jj_repo() -> bool {
 /// Returns true if @ has no descendants, false otherwise
 /// If repo_path is provided, runs jj in that directory
 pub fn is_at_head_in(repo_path: Option<&Path>) -> Result<bool> {
-    let descendants = get_descendants_in(repo_path)?;
-    Ok(descendants.is_empty())
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            "descendants(@) ~ @",
+            "--limit",
+            "1",
+            "-T",
+            "true",
+            "--no-graph",
+        ])
+        .output()
+        .context("Failed to execute jj log")?;
+
+    if !output.status.success() {
+        anyhow::bail!("jj log failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    // If there's no output, @ has no descendants (is at head)
+    Ok(output.stdout.is_empty())
 }
 
 /// Check if the working copy (@) is at a head in the current directory
@@ -74,59 +97,13 @@ pub fn has_conflicts() -> Result<bool> {
     has_conflicts_in(None)
 }
 
-/// Represents a jj commit with its change ID
-/// Note: We only store the change_id since that's all we need.
-/// Filtering by session ID is done via jj's template language using trailers.any()
-#[derive(Debug, Clone, PartialEq)]
-pub struct Commit {
-    pub change_id: String,
-}
-
-/// Get descendants of the current working copy (@)
-/// Returns commits ordered from closest to farthest
-/// If repo_path is provided, runs jj in that directory
-pub fn get_descendants_in(repo_path: Option<&Path>) -> Result<Vec<Commit>> {
-    let template = r#"change_id.short() ++ "\n""#;
-
-    let mut cmd = Command::new("jj");
-    if let Some(path) = repo_path {
-        cmd.current_dir(path);
-    }
-
-    let output = cmd
-        .args([
-            "log",
-            "-r",
-            "descendants(@) ~ @",
-            "-T",
-            template,
-            "--no-graph",
-            "--ignore-working-copy",
-        ])
-        .output()
-        .context("Failed to execute jj log")?;
-
-    if !output.status.success() {
-        anyhow::bail!("jj log failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_commits(&stdout)
-}
-
-/// Get descendants of the current working copy (@) in the current directory
-/// Returns commits ordered from closest to farthest
-pub fn get_descendants() -> Result<Vec<Commit>> {
-    get_descendants_in(None)
-}
-
 /// Find the closest descendant commit with the given session ID
-/// Returns None if no matching commit is found
+/// Returns the change ID if found, None otherwise
 /// If repo_path is provided, runs jj in that directory
 pub fn find_session_change_in(
     session_id: &str,
     repo_path: Option<&Path>,
-) -> Result<Option<Commit>> {
+) -> Result<Option<String>> {
     // Use revset to filter candidates and template to check exact match
     let revset = format!(r#"(descendants(@) ~ @) & description("{}")"#, session_id);
     let template = format!(
@@ -157,25 +134,25 @@ pub fn find_session_change_in(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let commits = parse_commits(&stdout)?;
+    let change_ids = parse_change_ids(&stdout);
 
     // Return the first match (closest descendant)
-    Ok(commits.into_iter().next())
+    Ok(change_ids.into_iter().next())
 }
 
 /// Find the closest descendant commit with the given session ID in the current directory
-/// Returns None if no matching commit is found
-pub fn find_session_change(session_id: &str) -> Result<Option<Commit>> {
+/// Returns the change ID if found, None otherwise
+pub fn find_session_change(session_id: &str) -> Result<Option<String>> {
     find_session_change_in(session_id, None)
 }
 
 /// Find any commit with the given session ID (not limited to descendants)
-/// Returns None if no matching commit is found
+/// Returns the change ID if found, None otherwise
 /// If repo_path is provided, runs jj in that directory
 pub fn find_session_change_anywhere_in(
     session_id: &str,
     repo_path: Option<&Path>,
-) -> Result<Option<Commit>> {
+) -> Result<Option<String>> {
     // Use revset to filter candidates and template to check exact match
     let revset = format!(r#"all() & description("{}")"#, session_id);
     let template = format!(
@@ -206,14 +183,15 @@ pub fn find_session_change_anywhere_in(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let commits = parse_commits(&stdout)?;
+    let change_ids = parse_change_ids(&stdout);
 
     // Return the first match
-    Ok(commits.into_iter().next())
+    Ok(change_ids.into_iter().next())
 }
 
 /// Find any commit with the given session ID in the current directory
-pub fn find_session_change_anywhere(session_id: &str) -> Result<Option<Commit>> {
+/// Returns the change ID if found, None otherwise
+pub fn find_session_change_anywhere(session_id: &str) -> Result<Option<String>> {
     find_session_change_anywhere_in(session_id, None)
 }
 
@@ -251,9 +229,9 @@ pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Res
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let commits = parse_commits(&stdout)?;
+    let change_ids = parse_change_ids(&stdout);
 
-    Ok(commits.len())
+    Ok(change_ids.len())
 }
 
 /// Count how many commits exist with the given session ID in the current directory
@@ -884,9 +862,9 @@ pub fn handle_squash_conflicts(session_id: &SessionId, part: usize) -> Result<()
 pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
     // First, try to interpret reference as a Claude session ID
     let actual_reference = match find_session_change_anywhere_in(reference, repo_path)? {
-        Some(commit) => {
-            // Found a session by ID, use its change_id
-            commit.change_id
+        Some(change_id) => {
+            // Found a session by ID, use the change_id
+            change_id
         }
         None => {
             // Not a session ID, treat as a jj reference
@@ -976,17 +954,15 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
-/// Parse commits from jj log output
-/// Format: change_id\n per commit
-fn parse_commits(output: &str) -> Result<Vec<Commit>> {
-    Ok(output
+/// Parse change IDs from jj log output
+/// Format: change_id\n per line
+fn parse_change_ids(output: &str) -> Vec<String> {
+    output
         .lines()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
-        .map(|change_id| Commit {
-            change_id: change_id.to_string(),
-        })
-        .collect())
+        .map(|s| s.to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -994,36 +970,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_commits_single() {
+    fn test_parse_change_ids_single() {
         let output = "abcd1234\n";
-        let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 1);
-        assert_eq!(commits[0].change_id, "abcd1234");
+        let change_ids = parse_change_ids(output);
+        assert_eq!(change_ids.len(), 1);
+        assert_eq!(change_ids[0], "abcd1234");
     }
 
     #[test]
-    fn test_parse_commits_multiple() {
+    fn test_parse_change_ids_multiple() {
         let output = "abcd1234\nefgh5678\nijkl9012\n";
-        let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 3);
-        assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(commits[1].change_id, "efgh5678");
-        assert_eq!(commits[2].change_id, "ijkl9012");
+        let change_ids = parse_change_ids(output);
+        assert_eq!(change_ids.len(), 3);
+        assert_eq!(change_ids[0], "abcd1234");
+        assert_eq!(change_ids[1], "efgh5678");
+        assert_eq!(change_ids[2], "ijkl9012");
     }
 
     #[test]
-    fn test_parse_commits_empty() {
+    fn test_parse_change_ids_empty() {
         let output = "";
-        let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 0);
+        let change_ids = parse_change_ids(output);
+        assert_eq!(change_ids.len(), 0);
     }
 
     #[test]
-    fn test_parse_commits_with_whitespace() {
+    fn test_parse_change_ids_with_whitespace() {
         let output = "  abcd1234  \n\n  efgh5678  \n";
-        let commits = parse_commits(output).unwrap();
-        assert_eq!(commits.len(), 2);
-        assert_eq!(commits[0].change_id, "abcd1234");
-        assert_eq!(commits[1].change_id, "efgh5678");
+        let change_ids = parse_change_ids(output);
+        assert_eq!(change_ids.len(), 2);
+        assert_eq!(change_ids[0], "abcd1234");
+        assert_eq!(change_ids[1], "efgh5678");
     }
 }
