@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  current
+
+○  commit with old session
+
+Claude-session-id: new-session-87654321
+
+○  uwc
+
+○  base
+
+◆

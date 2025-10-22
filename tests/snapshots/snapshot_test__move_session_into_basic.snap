@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  current
+
+○  commit1
+
+Claude-session-id: into-basic-12345678
+
+○  uwc
+
+○  base
+
+◆

@@ -21,6 +21,15 @@ enum Commands {
         #[arg(value_name = "SESSION_ID_OR_REF")]
         reference: String,
     },
+    /// Choose the change where this session will be squashed into
+    Into {
+        /// The Claude session ID
+        #[arg(value_name = "SESSION_ID")]
+        session_id: String,
+        /// The jj reference to move session tracking into (must be an ancestor of @)
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
     /// Get the jj change ID for a Claude session
     #[command(name = "change-id")]
     ChangeId {
@@ -159,6 +168,12 @@ fn run_command(cli: Cli) -> Result<()> {
         }
         Commands::Split { reference } => {
             jjagent::split_change(&reference)?;
+        }
+        Commands::Into {
+            session_id,
+            reference,
+        } => {
+            jjagent::move_session_into(&session_id, &reference)?;
         }
         Commands::ChangeId { session_id } => {
             match jjagent::jj::find_session_change_anywhere(&session_id)? {

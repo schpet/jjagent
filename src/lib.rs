@@ -72,6 +72,12 @@ pub fn split_change(reference: &str) -> Result<()> {
     jj::split_change(reference, None)
 }
 
+/// Move session tracking to an existing jj revision
+/// The reference must be an ancestor of @ (working copy)
+pub fn move_session_into(session_id: &str, reference: &str) -> Result<()> {
+    jj::move_session_into(session_id, reference, None)
+}
+
 /// Update a session change's description while preserving trailers
 /// Looks up the change by session ID and updates its description with the new message
 /// while automatically preserving all existing trailers

@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  current
+
+○  commit with trailers
+
+Signed-off-by: Test User <test@example.com>
+Reviewed-by: Reviewer <reviewer@example.com>
+Claude-session-id: preserve-test-12345678
+
+○  uwc
+
+○  base
+
+◆

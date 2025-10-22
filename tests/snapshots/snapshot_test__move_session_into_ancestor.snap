@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  current
+
+○  commit2
+
+○  commit1
+
+Claude-session-id: into-ancestor-87654321
+
+○  uwc
+
+○  base
+
+◆

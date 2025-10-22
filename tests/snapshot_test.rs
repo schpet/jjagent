@@ -1998,3 +1998,353 @@ fn test_split_change_with_session() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_move_session_into_basic() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "into-basic-12345678";
+
+    // Create some commits: @ -> commit1 -> base
+    let commit1_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", "@-"])
+        .output()?;
+
+    if !commit1_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit1: {}",
+            String::from_utf8_lossy(&commit1_output.stderr)
+        );
+    }
+
+    // Create @ on top of commit1
+    let at_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "current"])
+        .output()?;
+
+    if !at_output.status.success() {
+        anyhow::bail!(
+            "Failed to create @: {}",
+            String::from_utf8_lossy(&at_output.stderr)
+        );
+    }
+
+    // Move session into commit1 (using @-)
+    jjagent::jj::move_session_into(session_id, "@-", Some(repo.path()))?;
+
+    // Verify: commit1 should now have the session trailer
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_basic", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_ancestor() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "into-ancestor-87654321";
+
+    // Create a deeper history: @ -> commit2 -> commit1 -> uwc -> base
+    let commit1_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", "@-"])
+        .output()?;
+
+    if !commit1_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit1: {}",
+            String::from_utf8_lossy(&commit1_output.stderr)
+        );
+    }
+
+    let commit2_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit2"])
+        .output()?;
+
+    if !commit2_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit2: {}",
+            String::from_utf8_lossy(&commit2_output.stderr)
+        );
+    }
+
+    let at_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "current"])
+        .output()?;
+
+    if !at_output.status.success() {
+        anyhow::bail!(
+            "Failed to create @: {}",
+            String::from_utf8_lossy(&at_output.stderr)
+        );
+    }
+
+    // Move session into commit1 (using @--)
+    jjagent::jj::move_session_into(session_id, "@--", Some(repo.path()))?;
+
+    // Verify: commit1 should now have the session trailer
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_ancestor", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_replaces_existing_trailer() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let old_session_id = "old-session-12345678";
+    let new_session_id = "new-session-87654321";
+
+    // Create a commit with an existing session trailer
+    let commit_message = format!(
+        "commit with old session\n\nClaude-session-id: {}",
+        old_session_id
+    );
+    let commit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", &commit_message, "@-"])
+        .output()?;
+
+    if !commit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit: {}",
+            String::from_utf8_lossy(&commit_output.stderr)
+        );
+    }
+
+    // Create @ on top
+    let at_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "current"])
+        .output()?;
+
+    if !at_output.status.success() {
+        anyhow::bail!(
+            "Failed to create @: {}",
+            String::from_utf8_lossy(&at_output.stderr)
+        );
+    }
+
+    // Move new session into the commit that already has a session trailer
+    jjagent::jj::move_session_into(new_session_id, "@-", Some(repo.path()))?;
+
+    // Verify: the old session ID should be replaced with the new one
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_replaces_trailer", snapshot);
+
+    // Additionally verify the trailer was actually replaced
+    let desc = jjagent::jj::get_commit_description_in("@-", Some(repo.path()))?;
+    assert!(
+        desc.contains(new_session_id),
+        "Description should contain new session ID"
+    );
+    assert!(
+        !desc.contains(old_session_id),
+        "Description should not contain old session ID"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_preserves_other_trailers() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "preserve-test-12345678";
+
+    // Create a commit with multiple trailers
+    let commit_message = "commit with trailers\n\nSigned-off-by: Test User <test@example.com>\nReviewed-by: Reviewer <reviewer@example.com>";
+    let commit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", commit_message, "@-"])
+        .output()?;
+
+    if !commit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit: {}",
+            String::from_utf8_lossy(&commit_output.stderr)
+        );
+    }
+
+    // Create @ on top
+    let at_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "current"])
+        .output()?;
+
+    if !at_output.status.success() {
+        anyhow::bail!(
+            "Failed to create @: {}",
+            String::from_utf8_lossy(&at_output.stderr)
+        );
+    }
+
+    // Move session into the commit
+    jjagent::jj::move_session_into(session_id, "@-", Some(repo.path()))?;
+
+    // Verify: other trailers should be preserved
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_preserves_trailers", snapshot);
+
+    // Additionally verify trailers are still present
+    let desc = jjagent::jj::get_commit_description_in("@-", Some(repo.path()))?;
+    assert!(
+        desc.contains("Signed-off-by: Test User"),
+        "Should preserve Signed-off-by trailer"
+    );
+    assert!(
+        desc.contains("Reviewed-by: Reviewer"),
+        "Should preserve Reviewed-by trailer"
+    );
+    assert!(
+        desc.contains(&format!("Claude-session-id: {}", session_id)),
+        "Should add Claude-session-id trailer"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_not_ancestor() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "fail-test-12345678";
+
+    // Try to move session into @ itself (not an ancestor)
+    let result = jjagent::jj::move_session_into(session_id, "@", Some(repo.path()));
+
+    // Should fail
+    assert!(
+        result.is_err(),
+        "move_session_into should fail when ref is not an ancestor"
+    );
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("not an ancestor"),
+        "Error should mention 'not an ancestor', got: {}",
+        err_msg
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_with_change_id() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "changeid-test-12345678";
+
+    // Create a commit
+    let commit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "target commit", "@-"])
+        .output()?;
+
+    if !commit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit: {}",
+            String::from_utf8_lossy(&commit_output.stderr)
+        );
+    }
+
+    // Get the change ID of the commit
+    let change_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Create @ on top
+    let at_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "current"])
+        .output()?;
+
+    if !at_output.status.success() {
+        anyhow::bail!(
+            "Failed to create @: {}",
+            String::from_utf8_lossy(&at_output.stderr)
+        );
+    }
+
+    // Move session using the change ID
+    jjagent::jj::move_session_into(session_id, &change_id, Some(repo.path()))?;
+
+    // Verify: the commit should now have the session trailer
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_with_change_id", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_move_session_into_integration() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session1_id = "integration1-12345678";
+    let session2_id = "integration2-87654321";
+
+    // Simulate session 1 making changes
+    let simulator1 = ClaudeSimulator::new(repo.path(), session1_id);
+    simulator1.write_file("session1.txt", "session 1 content")?;
+
+    // Simulate session 2 making changes
+    let simulator2 = ClaudeSimulator::new(repo.path(), session2_id);
+    simulator2.write_file("session2.txt", "session 2 content")?;
+
+    // Now we have: @ uwc -> session2 -> session1 -> base
+    // Let's say we want to retroactively mark an older commit as belonging to a new session
+
+    // First, let's get the base commit change ID while we're at @
+    let base_change_id = jjagent::jj::get_change_id_in("@---", Some(repo.path()))?;
+
+    // Create a new commit inserted after base
+    let commit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "manual commit", &base_change_id])
+        .output()?;
+
+    if !commit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit: {}",
+            String::from_utf8_lossy(&commit_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("manual.txt"), "manual work")?;
+
+    // Get the change ID of the manual commit (now at @)
+    let manual_change_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Move back to top (uwc) which should be a few changes up
+    // After creating manual commit, the structure should be:
+    // uwc -> session2 -> session1 -> manual commit -> base
+    // We need to find uwc and edit to it
+    let uwc_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args([
+            "log",
+            "-r",
+            "description(uwc)",
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()?;
+
+    let uwc_id = String::from_utf8_lossy(&uwc_output.stdout)
+        .trim()
+        .to_string();
+
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", &uwc_id])
+        .output()?;
+
+    // Move session into the manual commit
+    let new_session_id = "retroactive-12345678";
+    jjagent::jj::move_session_into(new_session_id, &manual_change_id, Some(repo.path()))?;
+
+    // Verify the final state
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("move_session_into_integration", snapshot);
+
+    Ok(())
+}

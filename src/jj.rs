@@ -954,6 +954,134 @@ pub fn split_change(reference: &str, repo_path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+/// Move session tracking to an existing jj revision
+/// Verifies the reference is an ancestor of @ and updates its description with the session ID trailer
+pub fn move_session_into(
+    session_id: &str,
+    reference: &str,
+    repo_path: Option<&Path>,
+) -> Result<()> {
+    // Verify that reference is an ancestor of @ (working copy)
+    // Use ref..@ to check if there are descendants between ref and @
+    // If ref is @ itself, this will be empty, which means it's not a proper ancestor
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            &format!("{}..@", reference),
+            "--no-graph",
+            "-T",
+            "change_id.short()",
+        ])
+        .output()
+        .context("Failed to verify ancestry")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Error: '{}' is not an ancestor of the working copy",
+            reference
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // If the output is empty, then reference is @ or is not an ancestor
+    if stdout.trim().is_empty() {
+        anyhow::bail!(
+            "Error: '{}' is not an ancestor of the working copy",
+            reference
+        );
+    }
+
+    // Get the current description of the target revision
+    let current_description = get_commit_description_in(reference, repo_path)?;
+
+    // Parse the description to extract title and existing trailers
+    let (title, existing_trailers) = parse_description_and_trailers(&current_description);
+
+    // Remove any existing Claude-session-id trailers
+    let filtered_trailers: Vec<String> = existing_trailers
+        .into_iter()
+        .filter(|t| !t.starts_with("Claude-session-id:"))
+        .collect();
+
+    // Add the new session ID trailer
+    let mut new_trailers = filtered_trailers;
+    new_trailers.push(format!("Claude-session-id: {}", session_id));
+
+    // Build the complete message
+    let complete_message = if new_trailers.is_empty() {
+        title
+    } else {
+        format!("{}\n\n{}", title.trim(), new_trailers.join("\n"))
+    };
+
+    // Update the commit description
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args(["describe", "-r", reference, "-m", &complete_message])
+        .output()
+        .context("Failed to execute jj describe")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj describe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+/// Parse a commit description into title and trailers
+/// Returns (title, trailers) where trailers is a Vec of "Key: Value" strings
+fn parse_description_and_trailers(description: &str) -> (String, Vec<String>) {
+    let lines: Vec<&str> = description.lines().collect();
+
+    // Find where trailers start (after the last blank line)
+    let mut trailer_start = None;
+    for (i, line) in lines.iter().enumerate().rev() {
+        if line.trim().is_empty() {
+            trailer_start = Some(i + 1);
+            break;
+        }
+    }
+
+    match trailer_start {
+        Some(start) if start < lines.len() => {
+            // Check if lines after the blank line are actually trailers
+            let potential_trailers: Vec<&str> = lines[start..].to_vec();
+            let are_trailers = potential_trailers
+                .iter()
+                .all(|line| line.contains(':') || line.trim().is_empty());
+
+            if are_trailers {
+                let title = lines[..start - 1].join("\n");
+                let trailers: Vec<String> = potential_trailers
+                    .iter()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                (title, trailers)
+            } else {
+                // Not trailers, entire description is title
+                (description.to_string(), Vec::new())
+            }
+        }
+        _ => {
+            // No blank line found, entire description is title
+            (description.to_string(), Vec::new())
+        }
+    }
+}
+
 /// Parse change IDs from jj log output
 /// Format: change_id\n per line
 fn parse_change_ids(output: &str) -> Vec<String> {
