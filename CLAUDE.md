@@ -1,4 +1,4 @@
-# jjagent Development Guide
+BEFORE ANYTHING ELSE: run 'bd onboard' and follow the instructions
 
 claude code hooks to integrate with jujutsu vcs (jj). it isolates claude code sessions to a session specific jj change id.
 
