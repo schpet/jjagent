@@ -1,0 +1,15 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+@  jjagent: session after-wc
+
+Claude-session-id: after-wc-12345678
+
+○  existing commit
+
+○  uwc
+
+○  base
+
+◆

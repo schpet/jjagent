@@ -2348,3 +2348,177 @@ fn test_move_session_into_integration() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_create_change_after_basic() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "after-basic-12345678";
+
+    // Create a commit: @ uwc -> commit1 -> base
+    let commit1_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", "@-"])
+        .output()?;
+
+    if !commit1_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit1: {}",
+            String::from_utf8_lossy(&commit1_output.stderr)
+        );
+    }
+
+    // Get the change ID of commit1
+    let commit1_change_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Move back to uwc
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "description(uwc)"])
+        .output()?;
+
+    // Create a new change after commit1
+    jjagent::jj::create_change_after(session_id, &commit1_change_id, Some(repo.path()))?;
+
+    // Verify: should have created a new change with session trailer after commit1
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_change_after_basic", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_create_change_after_with_revset() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "after-revset-87654321";
+
+    // Create commits: @ uwc -> commit2 -> commit1 -> base
+    let commit1_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit1", "@-"])
+        .output()?;
+
+    if !commit1_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit1: {}",
+            String::from_utf8_lossy(&commit1_output.stderr)
+        );
+    }
+
+    let commit2_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "commit2"])
+        .output()?;
+
+    if !commit2_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit2: {}",
+            String::from_utf8_lossy(&commit2_output.stderr)
+        );
+    }
+
+    // Move back to uwc
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "description(uwc)"])
+        .output()?;
+
+    // Create a new change after commit1 using revset (@--)
+    jjagent::jj::create_change_after(session_id, "@--", Some(repo.path()))?;
+
+    // Verify: should have created a new change after commit1
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_change_after_with_revset", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_create_change_after_integration() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session1_id = "after-int1-12345678";
+    let session2_id = "after-int2-87654321";
+
+    // Create the first session change manually
+    let session1_message = format!(
+        "jjagent: session {}\n\nClaude-session-id: {}",
+        &session1_id[..8],
+        session1_id
+    );
+
+    let new_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", &session1_message, "@-"])
+        .output()?;
+
+    if !new_output.status.success() {
+        anyhow::bail!(
+            "Failed to create session1: {}",
+            String::from_utf8_lossy(&new_output.stderr)
+        );
+    }
+
+    std::fs::write(repo.path().join("session1.txt"), "session 1 content")?;
+
+    // Get the change ID of session1 - use @ since we just created it
+    let session1_change = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Move back to uwc
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "description(uwc)"])
+        .output()?;
+
+    // Create a new change after session1
+    jjagent::jj::create_change_after(session2_id, &session1_change, Some(repo.path()))?;
+
+    // The new change should be at @, make some modifications
+    std::fs::write(repo.path().join("session2.txt"), "session 2 content")?;
+
+    // Verify the final state
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_change_after_integration", snapshot);
+
+    Ok(())
+}
+
+#[test]
+fn test_create_change_after_moves_working_copy() -> Result<()> {
+    let repo = TestRepo::new_with_uwc()?;
+    let session_id = "after-wc-12345678";
+
+    // Create a commit
+    let commit_output = Command::new("jj")
+        .current_dir(repo.path())
+        .args(["new", "-m", "existing commit", "@-"])
+        .output()?;
+
+    if !commit_output.status.success() {
+        anyhow::bail!(
+            "Failed to create commit: {}",
+            String::from_utf8_lossy(&commit_output.stderr)
+        );
+    }
+
+    let commit_change_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
+
+    // Move back to uwc
+    Command::new("jj")
+        .current_dir(repo.path())
+        .args(["edit", "description(uwc)"])
+        .output()?;
+
+    // Create a new change after the existing commit
+    jjagent::jj::create_change_after(session_id, &commit_change_id, Some(repo.path()))?;
+
+    // Verify that @ is now the newly created change
+    let current_desc = jjagent::jj::get_commit_description_in("@", Some(repo.path()))?;
+    assert!(
+        current_desc.contains(session_id),
+        "Working copy should be the new change with session ID"
+    );
+
+    let snapshot = repo.snapshot()?;
+    insta::assert_snapshot!("create_change_after_moves_working_copy", snapshot);
+
+    Ok(())
+}
