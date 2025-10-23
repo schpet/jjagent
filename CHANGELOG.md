@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-10-23
+
+### Added
+
+- /jjagent:into and jjagent into commands
+
 ## [0.3.0] - 2025-10-20
 
 ### Added
@@ -86,7 +92,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/schpet/jjagent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/schpet/jjagent/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/schpet/jjagent/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/schpet/jjagent/compare/v0.2.4...v0.2.5
