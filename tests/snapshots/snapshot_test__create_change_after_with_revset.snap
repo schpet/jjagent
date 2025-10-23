@@ -1,0 +1,17 @@
+---
+source: tests/snapshot_test.rs
+expression: snapshot
+---
+○  commit2
+
+○  commit1
+
+○  uwc
+
+○  base
+
+@  jjagent: session after-re
+
+Claude-session-id: after-revset-87654321
+
+◆

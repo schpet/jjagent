@@ -1040,6 +1040,39 @@ pub fn move_session_into(
     Ok(())
 }
 
+/// Create a new change after a reference and move session tracking into it
+/// This is a convenience function that combines `jj new -A <ref>` with adding session trailer
+/// The working copy is moved to the newly created change
+pub fn create_change_after(
+    session_id: &str,
+    reference: &str,
+    repo_path: Option<&Path>,
+) -> Result<()> {
+    // Create a new change after the reference with session trailer in the message
+    // Remove --no-edit so it automatically edits (moves working copy to) the new change
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let commit_message = format!(
+        "jjagent: session {}\n\nClaude-session-id: {}",
+        &session_id[..8],
+        session_id
+    );
+
+    let output = cmd
+        .args(["new", "-A", reference, "-m", &commit_message])
+        .output()
+        .context("Failed to execute jj new")?;
+
+    if !output.status.success() {
+        anyhow::bail!("jj new failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    Ok(())
+}
+
 /// Parse a commit description into title and trailers
 /// Returns (title, trailers) where trailers is a Vec of "Key: Value" strings
 fn parse_description_and_trailers(description: &str) -> (String, Vec<String>) {
