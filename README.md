@@ -1,6 +1,6 @@
 # jjagent
 
-tracks claude code sessions as jj [changes](https://jj-vcs.github.io/jj/latest/glossary/#change). allowing you and coding agents to work together at the same time while keeping an organized set of changes to review.
+tracks claude code sessions as jj [changes](https://jj-vcs.github.io/jj/latest/glossary/#change). allowing a lightweight work flow for you and coding agents to work together at the same time while keeping an organized set of changes to review.
 
 ## how it works
 
@@ -81,9 +81,13 @@ the jjagent plugin provides additional commands and agents for working with sess
 
 ### slash commands
 
-- `/jjagent:describe` - generate an llm-written commit description for the current session's change
+- `/jjagent:describe` - describe the change for this session automagically
 
-- `/jjagent:split` - split the current session into a new change part. useful when you want to logically separate work within a single claude session into distinct jj changes.
+- `/jjagent:insert-after` - create a new change after a specific ref where this session's edits will live, if you already have a change for this session it'll help rebase it after this ref
+
+- `/jjagent:into` - mark an existing change to squash this session's edits into
+
+- `/jjagent:split` - split future edits into a new change
 
 ### hooks
 
