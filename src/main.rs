@@ -46,6 +46,16 @@ enum Commands {
         #[arg(short, long, value_name = "MESSAGE")]
         message: String,
     },
+    /// Generate a session commit message with trailers
+    #[command(name = "session-message")]
+    SessionMessage {
+        /// The Claude session ID
+        #[arg(value_name = "SESSION_ID")]
+        session_id: String,
+        /// Optional custom message (uses default session message if not provided)
+        #[arg(value_name = "MESSAGE")]
+        message: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -190,6 +200,13 @@ fn run_command(cli: Cli) -> Result<()> {
             message,
         } => {
             jjagent::describe_session_change(&session_id, &message)?;
+        }
+        Commands::SessionMessage {
+            session_id,
+            message,
+        } => {
+            let output = jjagent::format_session_commit_message(&session_id, message.as_deref())?;
+            println!("{}", output);
         }
     }
 

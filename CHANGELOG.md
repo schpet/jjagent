@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- /jjagent:insert-after slash command to set a ref where this change should land after
+
 ## [0.4.0] - 2025-10-23
 
 ### Added

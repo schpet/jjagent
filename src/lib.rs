@@ -91,3 +91,20 @@ pub fn describe_session_change(session_id: &str, new_message: &str) -> Result<()
 
     Ok(())
 }
+
+/// Format a commit message for a session change
+/// If no custom message is provided, uses the default session message format
+/// If a custom message is provided, appends the Claude-session-id trailer
+pub fn format_session_commit_message(
+    session_id: &str,
+    custom_message: Option<&str>,
+) -> Result<String> {
+    let sid = session::SessionId::from_full(session_id);
+
+    let message = match custom_message {
+        None => session::format_session_message(&sid),
+        Some(msg) => format!("{}\n\nClaude-session-id: {}", msg, sid.full()),
+    };
+
+    Ok(message)
+}
