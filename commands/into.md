@@ -2,6 +2,7 @@
 description: Choose the change where this session will be squashed into
 model: claude-haiku-4-5
 allowed-tools: Bash(jjagent into:*)
+argument-hint: <ref>
 ---
 
 # jja-into
@@ -17,11 +18,11 @@ You must follow these steps:
    - The format is: "The current session ID is <uuid>"
 
 2. **Get the target revision:**
-   - The revision is passed as the first argument: $1
+   - The target revision is: $1
    - This should be a jj reference (change ID, revset, etc.)
 
 3. **Run the into command:**
-   - Execute: `jjagent into <session-id> <ref>`
+   - Execute: `jjagent into <session-id> $1`
    - This will move session tracking to the specified revision
 
 4. **Inform the user:**

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Improve arguments for the /jjagent:into command
+
 ### Added
 
 - /jjagent:insert-after slash command to set a ref where this change should land after
