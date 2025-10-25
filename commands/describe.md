@@ -1,12 +1,5 @@
 ---
 description: Generate a commit description for the current session's jj change
-args:
-  - name: session_id
-    description: Optional session ID to describe (defaults to current session)
-    required: false
-  - name: session_summary
-    description: Optional session summary to use instead of reviewing context
-    required: false
 model: claude-haiku-4-5
 allowed-tools: Bash(jjagent:*), Bash(jj:*)
 ---
@@ -19,10 +12,8 @@ Generate a commit description for a Claude session's jj change
 
 You must follow these steps to create a proper commit message:
 
-1. **Determine parameters:**
-   - If a session ID argument was provided (e.g., `/jjagent:describe abc123...`), use that
-   - Otherwise, use the session ID from the system reminder (current session)
-   - Check if a session_summary parameter was provided
+1. **Determine session ID:**
+   - Use the session ID from the system reminder (current session)
    - Store the session ID for use in subsequent steps
 
 2. **Check if a change exists for the session:**
@@ -32,11 +23,9 @@ You must follow these steps to create a proper commit message:
    - Do NOT proceed to the next steps if no change ID is found
 
 3. **Gather context:**
-   - If a session_summary was provided as a parameter, use that directly
-   - If no session_summary was provided:
-     - Run: `jj diff -r "$(jjagent change-id <session-id>)"` to see ONLY the diff
-     - Review the diff to understand what was actually changed
-     - Review the conversation/context to understand why a change was made
+   - Run: `jj diff -r "$(jjagent change-id <session-id>)"` to see ONLY the diff
+   - Review the diff to understand what was actually changed
+   - Review the conversation/context to understand why a change was made
    - **Do NOT read the existing commit message** - it will be replaced entirely
 
 4. **Generate a NEW commit message:**
