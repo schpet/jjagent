@@ -13,16 +13,26 @@ install: logs-roll
     cargo install --path .
 
 release:
+    #!/usr/bin/env bash
+    set -e
+
     cargo fmt --check
     cargo clippy --all-targets --all-features -- -D warnings
 
-    svbump write "$(changelog version latest)" package.version Cargo.toml
+    VERSION="$(changelog version latest)"
+    svbump write "$VERSION" package.version Cargo.toml
+    svbump write "$VERSION" version .claude-plugin/plugin.json
+    svbump write "$VERSION" version .claude-plugin/marketplace.json
+    # Update nested plugin version using jq
+    jq ".plugins[0].version = \"$VERSION\"" .claude-plugin/marketplace.json > .claude-plugin/marketplace.json.tmp
+    mv .claude-plugin/marketplace.json.tmp .claude-plugin/marketplace.json
+
     cargo check
 
-    jj split Cargo.toml Cargo.lock CHANGELOG.md -m "chore: Release jjagent version $(svbump read package.version Cargo.toml)"
+    jj split Cargo.toml Cargo.lock CHANGELOG.md .claude-plugin/plugin.json .claude-plugin/marketplace.json -m "chore: Release jjagent version $VERSION"
 
     jj bookmark move main --to @-
     jj git push
 
-    git tag "v$(svbump read package.version Cargo.toml)" "$(jj log -r @- -T commit_id --no-graph)"
-    git push origin "v$(svbump read package.version Cargo.toml)"
+    git tag "v$VERSION" "$(jj log -r @- -T commit_id --no-graph)"
+    git push origin "v$VERSION"
