@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.1] - 2025-10-24
+
 ### Changed
 
 - Improve arguments for the /jjagent:into command
@@ -100,7 +102,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/schpet/jjagent/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/schpet/jjagent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/schpet/jjagent/compare/v0.2.6...v0.3.0
 [0.2.6]: https://github.com/schpet/jjagent/compare/v0.2.5...v0.2.6
