@@ -1,6 +1,13 @@
 # jjagent
 
-tracks claude code sessions as jj [changes](https://jj-vcs.github.io/jj/latest/glossary/#change). allowing a lightweight work flow for you and coding agents to work together at the same time while keeping an organized set of changes to review.
+jjagent is a claude code plugin and program that uses hooks to associate a claude session change to it's own commit. this makes isolating the edits from you and other claude sessions easy.
+
+this differs from having claude commit many times: there's a single, [changing commit](https://jj-vcs.github.io/jj/latest/glossary/#change) that you iterate on in a claude session. it's only split into another commit when a conflict would be detected or it is split by a user command.
+
+it also differs from git worktree style systems: you and claude are working on the same working copy. this allows you to prevent conflicts, and for all the claude sessions to be in sync with each others changes. this may or may not be desirable, and you can use jjagent within jj workspaces to make separate branches of work.
+
+the state is kept in the commit messages: a `Claude-sessions-id` trailer informs where jjagent will squash the claude session changes into, and also allows you to easily resume a claude session in the future.
+
 
 ## how it works
 
