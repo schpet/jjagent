@@ -1,0 +1,5 @@
+---
+source: tests/statusline_test.rs
+expression: stripped
+---
+~/test-statusline-home Test Model ✻

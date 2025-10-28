@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `jjagent claude statusline` command for displaying session change info in claude code status lines
+
 ## [0.4.1] - 2025-10-24
 
 ### Changed

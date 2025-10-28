@@ -80,6 +80,48 @@ cargo install --path .
    ```
 2. use claude code normally in a jj repo - jjagent runs automatically via hooks
 
+### status line integration (optional, recommended)
+
+jjagent can display your current session's jj change in [claude code's status line](https://docs.claude.com/en/docs/claude-code/statusline). this gives you visibility into what commit your edits are being tracked in.
+
+<img src="docs/assets/screenshot-status-line.png" alt="screenshot of a claude code session with a status line showing output like Sonnet 4.5 ✻ qxtqxkqq 602f8f0e Add feature" width="600" />
+
+<details>
+<summary>setup instructions</summary>
+
+1. create a status line script (e.g. `~/.claude/statusline.sh`):
+   ```bash
+   #!/bin/bash
+   input=$(cat)
+   model=$(echo "$input" | jq -r '.model.display_name')
+   jj_info=$(echo "$input" | jjagent claude statusline 2>/dev/null)
+   printf "%s ✻%s" "$model" "${jj_info:+ $jj_info}"
+   ```
+
+2. make it executable:
+   ```bash
+   chmod +x ~/.claude/statusline.sh
+   ```
+
+3. configure it in `~/.claude/settings.json`:
+   ```json
+   {
+     "statusline": {
+       "command": "~/.claude/statusline.sh"
+     }
+   }
+   ```
+
+4. restart claude code to see your status line:
+   ```
+   Sonnet 4.5 ✻ qxtqxkqq 602f8f0e Add feature
+   ```
+
+> [!TIP]
+> For more statusline customization options, see the [Claude Code statusline docs](https://docs.claude.com/en/docs/claude-code/statusline)
+
+</details>
+
 ## plugin features
 
 the jjagent plugin provides additional commands and agents for working with session changes:

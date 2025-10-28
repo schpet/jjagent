@@ -19,7 +19,11 @@
 //! - [`logger`]: Optional logging for debugging
 
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use serde_json::json;
+use std::io::{self, Read};
+use std::path::Path;
+use std::process::Command;
 
 pub mod hooks;
 pub mod jj;
@@ -107,4 +111,83 @@ pub fn format_session_commit_message(
     };
 
     Ok(message)
+}
+
+/// Input format for status line command
+/// Note: Unknown fields are ignored by default, ensuring forward compatibility
+/// if Claude Code adds new fields in the future
+#[derive(Deserialize)]
+struct StatuslineInput {
+    session_id: String,
+    workspace: WorkspaceInfo,
+}
+
+/// Workspace information from Claude Code
+/// Note: Unknown fields are ignored by default
+#[derive(Deserialize)]
+struct WorkspaceInfo {
+    current_dir: String,
+}
+
+/// Format jj session change info for status line
+/// Reads JSON input from stdin with session_id and workspace.current_dir
+/// Outputs the jj session change info part only (if in jj repo and session has a change)
+/// Returns empty string if no session change found
+pub fn format_jj_statusline_info() -> Result<String> {
+    // Read JSON from stdin
+    let mut stdin = io::stdin();
+    let mut input = String::new();
+    stdin.read_to_string(&mut input)?;
+
+    // Parse JSON
+    let data: StatuslineInput = serde_json::from_str(&input)?;
+
+    // Check if we're in a jj repo
+    let is_jj_repo = Command::new("jj")
+        .arg("--ignore-working-copy")
+        .arg("root")
+        .current_dir(&data.workspace.current_dir)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !is_jj_repo {
+        return Ok(String::new());
+    }
+
+    // Try to get the session change
+    let repo_path = Path::new(&data.workspace.current_dir);
+    let change_id = match jj::find_session_change_anywhere_in(&data.session_id, Some(repo_path))
+        .ok()
+        .flatten()
+    {
+        Some(id) => id,
+        None => return Ok(String::new()),
+    };
+
+    // Get formatted commit info with jj log
+    let jj_output = Command::new("jj")
+        .arg("log")
+        .arg("--ignore-working-copy")
+        .arg("--color=always")
+        .arg("--no-graph")
+        .arg("-r")
+        .arg(&change_id)
+        .arg("-T")
+        .arg("format_commit_summary_with_refs(self, bookmarks)")
+        .current_dir(&data.workspace.current_dir)
+        .output();
+
+    if let Ok(jj_output) = jj_output
+        && jj_output.status.success()
+    {
+        let change_info = String::from_utf8_lossy(&jj_output.stdout)
+            .trim()
+            .to_string();
+        if !change_info.is_empty() {
+            return Ok(change_info);
+        }
+    }
+
+    Ok(String::new())
 }
