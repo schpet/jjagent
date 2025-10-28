@@ -1,0 +1,5 @@
+---
+source: tests/statusline_test.rs
+expression: redacted
+---
+[CHANGE_ID] [COMMIT_ID] (empty) Test feature

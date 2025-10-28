@@ -62,6 +62,22 @@ enum Commands {
 enum ClaudeCommands {
     /// Print Claude Code settings JSON
     Settings,
+    /// Get jj session change info for Claude status line scripts (see docs.claude.com)
+    ///
+    /// Reads JSON from stdin with session_id and workspace.current_dir.
+    /// Outputs formatted jj change info if session change exists, or empty string.
+    ///
+    /// Example bash status line script:
+    ///   input=$(cat)
+    ///   model=$(echo "$input" | jq -r '.model.display_name')
+    ///   jj_info=$(echo "$input" | jjagent claude statusline 2>/dev/null)
+    ///   printf "%s ✻%s" "$model" "${jj_info:+ $jj_info}"
+    ///
+    /// Example output:
+    ///   Sonnet 4.5 ✻ qxtqxkqq 602f8f0e Add feature
+    ///
+    /// Docs: https://docs.claude.com/en/docs/claude-code/statusline
+    Statusline,
     /// Claude Code hooks for jj integration
     #[command(subcommand)]
     Hooks(HookCommands),
@@ -106,8 +122,16 @@ fn run_command(cli: Cli) -> Result<()> {
                 return Ok(());
             }
 
+            // Handle Statusline command
+            if let ClaudeCommands::Statusline = claude_cmd {
+                let jj_info = jjagent::format_jj_statusline_info()?;
+                print!("{}", jj_info);
+                return Ok(());
+            }
+
             match claude_cmd {
                 ClaudeCommands::Settings => unreachable!(),
+                ClaudeCommands::Statusline => unreachable!(),
                 ClaudeCommands::Hooks(hook_cmd) => {
                     // Check if hooks are disabled
                     if env::var("JJAGENT_DISABLE").unwrap_or_default() == "1" {
