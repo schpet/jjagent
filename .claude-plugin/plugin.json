@@ -1,7 +1,7 @@
 {
   "name": "jjagent",
   "description": "Track Claude Code sessions as jujutsu changes",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "author": {
     "name": "schpet"
   },
