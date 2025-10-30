@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Exclude immutable commits from session change search to prevent `jj squash` failures
+
 ## [0.4.2] - 2025-10-28
 
 ### Added

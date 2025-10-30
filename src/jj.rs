@@ -99,13 +99,18 @@ pub fn has_conflicts() -> Result<bool> {
 
 /// Find the closest descendant commit with the given session ID
 /// Returns the change ID if found, None otherwise
+/// Excludes immutable commits from the search results
 /// If repo_path is provided, runs jj in that directory
 pub fn find_session_change_in(
     session_id: &str,
     repo_path: Option<&Path>,
 ) -> Result<Option<String>> {
     // Use revset to filter candidates and template to check exact match
-    let revset = format!(r#"(descendants(@) ~ @) & description("{}")"#, session_id);
+    // Exclude immutable commits to prevent trying to squash into them
+    let revset = format!(
+        r#"(descendants(@) ~ @) & description("{}") & ~immutable()"#,
+        session_id
+    );
     let template = format!(
         r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n", "")"#,
         session_id
@@ -148,13 +153,15 @@ pub fn find_session_change(session_id: &str) -> Result<Option<String>> {
 
 /// Find any commit with the given session ID (not limited to descendants)
 /// Returns the change ID if found, None otherwise
+/// Excludes immutable commits from the search results
 /// If repo_path is provided, runs jj in that directory
 pub fn find_session_change_anywhere_in(
     session_id: &str,
     repo_path: Option<&Path>,
 ) -> Result<Option<String>> {
     // Use revset to filter candidates and template to check exact match
-    let revset = format!(r#"all() & description("{}")"#, session_id);
+    // Exclude immutable commits to prevent trying to squash into them
+    let revset = format!(r#"all() & description("{}") & ~immutable()"#, session_id);
     let template = format!(
         r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id ++ "\n", "")"#,
         session_id
