@@ -15,16 +15,17 @@ claude code hooks to integrate with jujutsu vcs (jj). it isolates claude code se
 
 - Be sure to run tests and address clippy changes when you’re done making a series of code changes: `cargo clippy --all-targets --all-features -- -D warnings`
 
-## Running Tests
+## running tests
 
-Run all tests:
+run all tests:
+
 ```bash
-
 cargo test
+
 # less output
 cargo test --quiet
 
-# Run a specific test:
+# to run a specific test:
 cargo test test_first_tool_use
 ```
 
