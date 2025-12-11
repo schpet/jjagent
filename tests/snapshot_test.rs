@@ -212,6 +212,7 @@ impl TestRepo {
 
         let output = Command::new("jj")
             .current_dir(self.path())
+            .env("JJ_CONFIG", "/dev/null")
             .args(["log", "--no-graph", "-T", template, "-p"])
             .output()
             .context("Failed to run jj log")?;

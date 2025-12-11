@@ -739,8 +739,8 @@ pub fn handle_squash_conflicts_in(
         cmd.current_dir(path);
     }
 
-    // Get ancestors of @- (excluding root) to find the first non-session change
-    // Default order is oldest first, which we'll iterate backwards through
+    // Use jj template to mark each commit as SESSION or OTHER based on trailer presence
+    let template = r#"if(trailers.any(|t| t.key() == "Claude-session-id"), "SESSION:", "OTHER:") ++ change_id ++ "\n""#;
     let log_output = cmd
         .args([
             "log",
@@ -748,108 +748,101 @@ pub fn handle_squash_conflicts_in(
             "::@- & ~root()", // All ancestors of @- except root
             "--no-graph",
             "-T",
-            r#"change_id ++ "\n" ++ description ++ "\n---""#,
+            template,
         ])
         .output()
         .context("Failed to get ancestor changes")?;
 
+    // Find a non-session change that appears to be "trapped" between session changes
+    let mut uwc_id = None;
     if log_output.status.success() {
         let output = String::from_utf8_lossy(&log_output.stdout);
-        let changes: Vec<&str> = output.trim().split("---").collect();
-
-        // Find a non-session change that appears to be "trapped" between session changes
-        // This would be the user's working copy that needs to be moved to the tip
         let mut found_session = false;
-        let mut uwc_id = None;
 
-        for change in changes.iter() {
-            let lines: Vec<&str> = change.trim().lines().collect();
-            if lines.len() >= 2 {
-                let change_id = lines[0];
-                let description = lines[1];
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
 
-                if description.starts_with("jjagent: session") && !change_id.is_empty() {
-                    found_session = true;
-                } else if found_session
-                    && !description.starts_with("jjagent: session")
-                    && !change_id.is_empty()
-                {
-                    // Found a non-session change after session changes
-                    // This is likely the uwc that's trapped between sessions
-                    uwc_id = Some(change_id.to_string());
-                    break;
-                }
+            if line.starts_with("SESSION:") {
+                found_session = true;
+            } else if let Some(change_id) = line.strip_prefix("OTHER:")
+                && found_session
+            {
+                uwc_id = Some(change_id.to_string());
+                break;
             }
         }
+    }
 
-        if let Some(uwc_id) = uwc_id {
-            // First get the uwc's description to preserve it
-            let mut cmd = Command::new("jj");
-            if let Some(path) = repo_path {
-                cmd.current_dir(path);
-            }
-            let desc_output = cmd
-                .args(["log", "-r", &uwc_id, "--no-graph", "-T", "description"])
-                .output()
-                .context("Failed to get uwc description")?;
+    if let Some(uwc_id) = uwc_id {
+        // First get the uwc's description to preserve it
+        let mut cmd = Command::new("jj");
+        if let Some(path) = repo_path {
+            cmd.current_dir(path);
+        }
+        let desc_output = cmd
+            .args(["log", "-r", &uwc_id, "--no-graph", "-T", "description"])
+            .output()
+            .context("Failed to get uwc description")?;
 
-            if !desc_output.status.success() {
-                anyhow::bail!(
-                    "Failed to get uwc description: {}",
-                    String::from_utf8_lossy(&desc_output.stderr)
-                );
-            }
+        if !desc_output.status.success() {
+            anyhow::bail!(
+                "Failed to get uwc description: {}",
+                String::from_utf8_lossy(&desc_output.stderr)
+            );
+        }
 
-            let uwc_description = String::from_utf8_lossy(&desc_output.stdout)
-                .trim()
-                .to_string();
+        let uwc_description = String::from_utf8_lossy(&desc_output.stdout)
+            .trim()
+            .to_string();
 
-            // Count conflicts in the entire stack before attempting squash
-            // We need to check from root:: to catch all conflicts
-            let conflicts_before = count_conflicts_in("root()", repo_path)?;
+        // Count conflicts in the entire stack before attempting squash
+        // We need to check from root:: to catch all conflicts
+        let conflicts_before = count_conflicts_in("root()", repo_path)?;
 
-            // Try to squash uwc into the new working copy, preserving uwc's description
-            let mut cmd = Command::new("jj");
-            if let Some(path) = repo_path {
-                cmd.current_dir(path);
-            }
-            let squash_output = cmd
-                .args([
-                    "squash",
-                    "--from",
-                    &uwc_id,
-                    "--into",
-                    "@",
-                    "-m",
-                    &uwc_description,
-                ])
-                .output()
-                .context("Failed to squash uwc to tip")?;
+        // Try to squash uwc into the new working copy, preserving uwc's description
+        let mut cmd = Command::new("jj");
+        if let Some(path) = repo_path {
+            cmd.current_dir(path);
+        }
+        let squash_output = cmd
+            .args([
+                "squash",
+                "--from",
+                &uwc_id,
+                "--into",
+                "@",
+                "-m",
+                &uwc_description,
+            ])
+            .output()
+            .context("Failed to squash uwc to tip")?;
 
-            if squash_output.status.success() {
-                // Check if new conflicts were introduced anywhere in the stack
-                let conflicts_after = count_conflicts_in("root()", repo_path)?;
+        if squash_output.status.success() {
+            // Check if new conflicts were introduced anywhere in the stack
+            let conflicts_after = count_conflicts_in("root()", repo_path)?;
 
-                if conflicts_after > conflicts_before {
-                    // New conflicts introduced, undo the squash
-                    let mut cmd = Command::new("jj");
-                    if let Some(path) = repo_path {
-                        cmd.current_dir(path);
-                    }
-                    let undo_output = cmd
-                        .args(["undo"])
-                        .output()
-                        .context("Failed to undo uwc squash")?;
-
-                    if !undo_output.status.success() {
-                        anyhow::bail!(
-                            "Failed to undo uwc squash: {}",
-                            String::from_utf8_lossy(&undo_output.stderr)
-                        );
-                    }
+            if conflicts_after > conflicts_before {
+                // New conflicts introduced, undo the squash
+                let mut cmd = Command::new("jj");
+                if let Some(path) = repo_path {
+                    cmd.current_dir(path);
                 }
-                // If no new conflicts, we successfully moved uwc to the tip
+                let undo_output = cmd
+                    .args(["undo"])
+                    .output()
+                    .context("Failed to undo uwc squash")?;
+
+                if !undo_output.status.success() {
+                    anyhow::bail!(
+                        "Failed to undo uwc squash: {}",
+                        String::from_utf8_lossy(&undo_output.stderr)
+                    );
+                }
             }
+            // If no new conflicts, we successfully moved uwc to the tip
         }
     }
 
