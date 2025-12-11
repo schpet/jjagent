@@ -496,6 +496,62 @@ pub fn get_current_commit_session_id() -> Result<Option<String>> {
     get_current_commit_session_id_in(None)
 }
 
+/// Get the Claude-session-id trailer from a specific revision
+/// If multiple Claude-session-id trailers exist, returns the last one
+/// Returns None if no session ID trailer is found
+/// If repo_path is provided, runs jj in that directory
+pub fn get_session_id_in(revset: &str, repo_path: Option<&Path>) -> Result<Option<String>> {
+    // Use jj template to extract only Claude-session-id trailer values
+    // We get all of them and will pick the last one
+    let template =
+        r#"trailers.filter(|t| t.key() == "Claude-session-id").map(|t| t.value()).join("\n")"#;
+
+    let mut cmd = Command::new("jj");
+    if let Some(path) = repo_path {
+        cmd.current_dir(path);
+    }
+
+    let output = cmd
+        .args([
+            "log",
+            "-r",
+            revset,
+            "-T",
+            template,
+            "--no-graph",
+            "--ignore-working-copy",
+        ])
+        .output()
+        .context("Failed to execute jj log to get session ID")?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "jj log failed for revset '{}': {}",
+            revset,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let session_ids_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if session_ids_str.is_empty() {
+        Ok(None)
+    } else {
+        // Return the last session ID if multiple exist
+        let last_session_id = session_ids_str
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .next_back()
+            .map(|s| s.to_string());
+        Ok(last_session_id)
+    }
+}
+
+/// Get the Claude-session-id trailer from a specific revision in the current directory
+pub fn get_session_id(revset: &str) -> Result<Option<String>> {
+    get_session_id_in(revset, None)
+}
+
 /// Get all trailers from a specific commit
 /// Returns a vector of formatted trailer lines (e.g., "Key: Value")
 /// If repo_path is provided, runs jj in that directory

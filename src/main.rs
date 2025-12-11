@@ -37,6 +37,13 @@ enum Commands {
         #[arg(value_name = "SESSION_ID")]
         session_id: String,
     },
+    /// Get the Claude session ID from a jj revision
+    #[command(name = "session-id")]
+    SessionId {
+        /// The jj revision (change ID, bookmark, @, etc.)
+        #[arg(value_name = "REV", default_value = "@")]
+        rev: String,
+    },
     /// Update the description of a session's commit while preserving trailers
     Describe {
         /// The Claude session ID
@@ -219,6 +226,14 @@ fn run_command(cli: Cli) -> Result<()> {
                 }
             }
         }
+        Commands::SessionId { rev } => match jjagent::jj::get_session_id(&rev)? {
+            Some(session_id) => {
+                println!("{}", session_id);
+            }
+            None => {
+                anyhow::bail!("No Claude-session-id trailer found in revision: {}", rev);
+            }
+        },
         Commands::Describe {
             session_id,
             message,

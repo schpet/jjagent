@@ -5,6 +5,7 @@
 ### Added
 
 - allow /jjagent:describe to take a parameter with a message
+- `jjagent session-id <rev>` command to extract Claude session ID from any jj revision, enabling session resumption via `claude -r $(jjagent session-id @-)`
 
 ### Fixed
 

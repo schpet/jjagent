@@ -146,6 +146,26 @@ the plugin automatically configures these hooks:
 - `PreToolUse` / `PostToolUse` - manages session changes around file edits (edit, write tools)
 - `Stop` - cleanup when claude session ends
 
+## resuming sessions
+
+you can resume any previous claude session using the `session-id` command. this extracts the Claude session ID from a jj revision's trailer:
+
+```bash
+# resume a session from any jj revision (change ID, bookmark, @-, etc.)
+claude -r $(jjagent session-id <jj-ref>)
+
+# examples:
+claude -r $(jjagent session-id @-)     # resume session from parent commit
+claude -r $(jjagent session-id abc123) # resume session from specific change ID
+```
+
+the inverse command `change-id` finds the jj change for a given session:
+
+```bash
+# find the jj change ID for a claude session
+jjagent change-id <session-id>
+```
+
 ## mood board
 
 > You see, jj was designed around a single feature requirement. That requirement led to a very simple design addition to Git's DVCS model, that naturally enabled all of the features:
