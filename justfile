@@ -36,3 +36,15 @@ release:
 
     git tag "v$VERSION" "$(jj log -r @- -T commit_id --no-graph)"
     git push origin "v$VERSION"
+
+claude-remove-local:
+  -claude plugin remove jjagent@jjagent
+  -claude plugin marketplace remove jjagent
+
+claude-install-local:
+  claude plugin marketplace add ./
+  claude plugin install jjagent@jjagent
+
+claude-install-github:
+  claude plugin marketplace add schpet/jjagent
+  claude plugin install jjagent@jjagent

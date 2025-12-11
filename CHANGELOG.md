@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- allow /jjagent:describe to take a parameter with a message
+
 ### Fixed
 
 - Exclude immutable commits from session change search to prevent `jj squash` failures

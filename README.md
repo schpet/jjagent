@@ -130,12 +130,10 @@ the jjagent plugin provides additional commands and agents for working with sess
 
 ### slash commands
 
-- `/jjagent:describe` - describe the change for this session automagically
-
+- `/jjagent:describe "example message...` - describe this session's change with a provided message
+- `/jjagent:describe` - generate a message based on the diff
 - `/jjagent:insert-after` - create a new change after a specific ref where this session's edits will live, if you already have a change for this session it'll help rebase it after this ref
-
 - `/jjagent:into` - mark an existing change to squash this session's edits into
-
 - `/jjagent:split` - split future edits into a new change
 
 ### hooks
@@ -147,14 +145,6 @@ the plugin automatically configures these hooks:
 - `UserPromptSubmit` - re-injects session ID if it's been lost from recent context (i.e. compact)
 - `PreToolUse` / `PostToolUse` - manages session changes around file edits (edit, write tools)
 - `Stop` - cleanup when claude session ends
-
-## development
-
-Run tests:
-
-```bash
-cargo test
-```
 
 ## mood board
 

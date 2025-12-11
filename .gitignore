@@ -1,2 +1,5 @@
 /target
 /workspaces/
+
+# exclude .jj from claude code local plugin install
+.jj

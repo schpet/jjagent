@@ -2,6 +2,7 @@
 description: Generate a commit description for the current session's jj change
 model: claude-haiku-4-5
 allowed-tools: Bash(jjagent:*), Bash(jj:*)
+argument-hint: [message]
 ---
 
 # jj-describe
@@ -22,13 +23,17 @@ You must follow these steps to create a proper commit message:
      "No jj change exists for this session yet. There's nothing to describe."
    - Do NOT proceed to the next steps if no change ID is found
 
-3. **Gather context:**
+3. **Check for user-provided message:**
+   - If `$1` is not empty (e.g., `/jjagent:describe "Fix the login bug"`), skip steps 4-5 and go directly to step 6
+   - Use `$1` exactly as provided for the commit message
+
+4. **Gather context (skip if message provided):**
    - Run: `jj diff -r "$(jjagent change-id <session-id>)"` to see ONLY the diff
    - Review the diff to understand what was actually changed
    - Review the conversation/context to understand why a change was made
    - **Do NOT read the existing commit message** - it will be replaced entirely
 
-4. **Generate a NEW commit message:**
+5. **Generate a NEW commit message (skip if message provided):**
    - **First line (subject):**
      - 50 characters or less
      - Capitalize the first letter
@@ -43,14 +48,15 @@ You must follow these steps to create a proper commit message:
      - Use bullet points for multiple items if appropriate
      - Blank lines separate paragraphs
 
-5. **Update the description:**
+6. **Update the description:**
    - Run: `jjagent describe <session-id> -m "your commit message here"`
+   - If `$1` was provided, use it exactly as the commit message
    - **Do NOT include any trailers** (Claude-session-id, etc.) - they are preserved automatically
    - Only include the subject line and body
    - Use a heredoc or proper quoting to preserve formatting
    - Note: This is the Rust CLI tool command, not the slash command
 
-6. **Show the final change**
+7. **Show the final change**
    - Run: `jj show "$(jjagent change-id <session-id>) -s` and show the user direct output formatted as a code block
 
 ## Example commit message (what you pass to `jjagent describe`):
