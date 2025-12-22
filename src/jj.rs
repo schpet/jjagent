@@ -108,7 +108,7 @@ pub fn find_session_change_in(
     // Use revset to filter candidates and template to check exact match
     // Exclude immutable commits to prevent trying to squash into them
     let revset = format!(
-        r#"(descendants(@) ~ @) & description("{}") & ~immutable()"#,
+        r#"(descendants(@) ~ @) & description(substring:"{}") & ~immutable()"#,
         session_id
     );
     let template = format!(
@@ -161,7 +161,10 @@ pub fn find_session_change_anywhere_in(
 ) -> Result<Option<String>> {
     // Use revset to filter candidates and template to check exact match
     // Exclude immutable commits to prevent trying to squash into them
-    let revset = format!(r#"all() & description("{}") & ~immutable()"#, session_id);
+    let revset = format!(
+        r#"all() & description(substring:"{}") & ~immutable()"#,
+        session_id
+    );
     let template = format!(
         r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id ++ "\n", "")"#,
         session_id
@@ -207,7 +210,7 @@ pub fn find_session_change_anywhere(session_id: &str) -> Result<Option<String>> 
 /// If repo_path is provided, runs jj in that directory
 pub fn count_session_parts_in(session_id: &str, repo_path: Option<&Path>) -> Result<usize> {
     // Use revset to filter candidates and template to check exact match
-    let revset = format!(r#"all() & description("{}")"#, session_id);
+    let revset = format!(r#"all() & description(substring:"{}")"#, session_id);
     let template = format!(
         r#"if(trailers.any(|t| t.key() == "Claude-session-id" && t.value() == "{}"), change_id.short() ++ "\n", "")"#,
         session_id

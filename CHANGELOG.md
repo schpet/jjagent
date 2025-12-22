@@ -10,6 +10,7 @@
 ### Fixed
 
 - Exclude immutable commits from session change search to prevent `jj squash` failures
+- Fix session change lookup failing with "Session change should exist" error on jj 0.36+. The `description()` revset function now defaults to glob matching instead of substring matching, requiring explicit `substring:` prefix to find commits containing the session ID in their description.
 
 ## [0.4.2] - 2025-10-28
 
