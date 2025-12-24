@@ -62,8 +62,13 @@ cargo install --path .
 
 1. add the marketplace and install the plugin:
    ```bash
+   # from claude code
    /plugin marketplace add schpet/jjagent
    /plugin install jjagent@jjagent
+
+   # from bash
+   claude plugin marketplace add schpet/jjagent
+   claude plugin install jjagent@jjagent
    ```
 1. restart claude code
 1. use claude code normally in a jj repo - jjagent runs automatically via hooks
