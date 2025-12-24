@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-12-23
+
 ### Added
 
 - allow /jjagent:describe to take a parameter with a message
@@ -118,7 +120,8 @@
 
 - initial release
 
-[Unreleased]: https://github.com/schpet/jjagent/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/schpet/jjagent/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/schpet/jjagent/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/schpet/jjagent/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/schpet/jjagent/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/schpet/jjagent/compare/v0.3.0...v0.4.0
