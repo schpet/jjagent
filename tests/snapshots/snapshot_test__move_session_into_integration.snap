@@ -2,12 +2,6 @@
 source: tests/snapshot_test.rs
 expression: snapshot
 ---
-○  manual commit
-
-Claude-session-id: retroactive-12345678
-
-Added regular file manual.txt:
-        1: manual work
 @  uwc
 
 ○  jjagent: session integrat
@@ -22,6 +16,10 @@ Claude-session-id: integration1-12345678
 
 Added regular file session1.txt:
         1: session 1 content
+○  manual commit
+
+Claude-session-id: retroactive-12345678
+
 ○  base
 
 ◆

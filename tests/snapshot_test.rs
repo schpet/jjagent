@@ -2296,10 +2296,18 @@ fn test_move_session_into_integration() -> Result<()> {
     // First, let's get the base commit change ID while we're at @
     let base_change_id = jjagent::jj::get_change_id_in("@---", Some(repo.path()))?;
 
-    // Create a new commit inserted after base
+    // Create a new commit inserted AFTER base (using --insert-after to keep it in the chain)
+    // This inserts the commit between base and session1, keeping the linear history
     let commit_output = Command::new("jj")
         .current_dir(repo.path())
-        .args(["new", "-m", "manual commit", &base_change_id])
+        .args([
+            "new",
+            "--insert-after",
+            &base_change_id,
+            "--no-edit",
+            "-m",
+            "manual commit",
+        ])
         .output()?;
 
     if !commit_output.status.success() {
@@ -2309,35 +2317,22 @@ fn test_move_session_into_integration() -> Result<()> {
         );
     }
 
-    std::fs::write(repo.path().join("manual.txt"), "manual work")?;
-
-    // Get the change ID of the manual commit (now at @)
-    let manual_change_id = jjagent::jj::get_change_id_in("@", Some(repo.path()))?;
-
-    // Move back to top (uwc) which should be a few changes up
-    // After creating manual commit, the structure should be:
-    // uwc -> session2 -> session1 -> manual commit -> base
-    // We need to find uwc and edit to it
-    let uwc_output = Command::new("jj")
+    // Find the manual commit we just created (it's now between base and session1)
+    let manual_output = Command::new("jj")
         .current_dir(repo.path())
         .args([
             "log",
             "-r",
-            "description(uwc)",
+            "description(substring:\"manual commit\")",
             "--no-graph",
             "-T",
             "change_id.short()",
         ])
         .output()?;
 
-    let uwc_id = String::from_utf8_lossy(&uwc_output.stdout)
+    let manual_change_id = String::from_utf8_lossy(&manual_output.stdout)
         .trim()
         .to_string();
-
-    Command::new("jj")
-        .current_dir(repo.path())
-        .args(["edit", &uwc_id])
-        .output()?;
 
     // Move session into the manual commit
     let new_session_id = "retroactive-12345678";

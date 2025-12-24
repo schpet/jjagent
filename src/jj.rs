@@ -543,8 +543,7 @@ pub fn get_session_id_in(revset: &str, repo_path: Option<&Path>) -> Result<Optio
         // Return the last session ID if multiple exist
         let last_session_id = session_ids_str
             .lines()
-            .filter(|line| !line.trim().is_empty())
-            .next_back()
+            .rfind(|line| !line.trim().is_empty())
             .map(|s| s.to_string());
         Ok(last_session_id)
     }
