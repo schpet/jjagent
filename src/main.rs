@@ -30,6 +30,15 @@ enum Commands {
         #[arg(value_name = "REF")]
         reference: String,
     },
+    /// Create a new change after a reference and track the session in it
+    After {
+        /// The Claude session ID
+        #[arg(value_name = "SESSION_ID")]
+        session_id: String,
+        /// The jj reference to create the new change after
+        #[arg(value_name = "REF")]
+        reference: String,
+    },
     /// Get the jj change ID for a Claude session
     #[command(name = "change-id")]
     ChangeId {
@@ -215,6 +224,12 @@ fn run_command(cli: Cli) -> Result<()> {
             reference,
         } => {
             jjagent::move_session_into(&session_id, &reference)?;
+        }
+        Commands::After {
+            session_id,
+            reference,
+        } => {
+            jjagent::create_change_after(&session_id, &reference)?;
         }
         Commands::ChangeId { session_id } => {
             match jjagent::jj::find_session_change_anywhere(&session_id)? {
