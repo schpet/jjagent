@@ -82,6 +82,12 @@ pub fn move_session_into(session_id: &str, reference: &str) -> Result<()> {
     jj::move_session_into(session_id, reference, None)
 }
 
+/// Create a new change after a reference and move session tracking into it
+/// This is a convenience that combines `jj new -A <ref>` with moving session tracking
+pub fn create_change_after(session_id: &str, reference: &str) -> Result<()> {
+    jj::create_change_after(session_id, reference, None)
+}
+
 /// Update a session change's description while preserving trailers
 /// Looks up the change by session ID and updates its description with the new message
 /// while automatically preserving all existing trailers
